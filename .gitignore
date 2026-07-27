@@ -1,0 +1,10 @@
+data/
+*.csv
+*.zip
+DATASET/
+__pycache__/
+*.pyc
+.ipynb_checkpoints/
+results/*.pt
+results/*.pkl
+.DS_Store
