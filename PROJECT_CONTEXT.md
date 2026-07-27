@@ -74,6 +74,24 @@ Entry point: `DQFramework(batch_data, reference_data, mode="general", threshold=
 
 ---
 
+## 4b. ANOMALY INJECTION CALIBRATION (decided 27 Jul 2026 — for methodology chapter)
+
+The project file's default anomaly injection (rate 2%, multiplier x50) was tested on the
+real data and found INSUFFICIENT: amounts are so heavy-tailed (reference 99.9th percentile
+~592M, max ~24bn) that a x50 anomaly typically lands below the 88th percentile of natural
+amounts — it is not an outlier. Injecting 2% also makes anomalies cluster, which breaks LOF.
+
+DECISION: use a RARE + EXTREME injection for Module 1 — rate 0.5%, multiplier 1000 — so
+anomalies are genuine outliers without clustering. Report ROC-AUC and PR-AUC, not a fixed
+0.5 threshold. Document this calibration in the methodology as a data-driven adjustment.
+
+Verified Module 1 results at this setting (100k reference / 100k incoming sample):
+  Z-score ROC-AUC 0.88 (best) · Isolation Forest 0.81 · IQR 0.59 · LOF 0.18 (fails).
+The LOF failure is a genuine finding, not a bug: LOF is a local detector and the anomalies
+are global extremes. It is direct evidence for the multi-detector design (Xu et al. 2023;
+Han et al. 2022) — report it, do not hide it. PR-AUC is low across detectors because natural
+extremes compete with injected anomalies; this is an honest limitation of the data.
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
