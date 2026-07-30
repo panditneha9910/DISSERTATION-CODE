@@ -92,6 +92,24 @@ are global extremes. It is direct evidence for the multi-detector design (Xu et 
 Han et al. 2022) — report it, do not hide it. PR-AUC is low across detectors because natural
 extremes compete with injected anomalies; this is an honest limitation of the data.
 
+## 4c. MODULE 2 FINDINGS (28 Jul 2026 — for methodology/results)
+
+All three steps work. Verified on real data:
+- Step 1 (structural): detects dropped columns and dtype changes exactly (deterministic).
+- Step 2 (statistical): KS flags shifted numeric columns, Chi-squared flags categorical
+  shifts, and unchanged columns are correctly left alone.
+- Step 3 (RF drift classifier): F1 ~0.99, ROC-AUC ~1.00 on the controlled experiment
+  (train drift at 5/10%, evaluate at 20/30%, different seeds).
+
+IMPORTANT design finding: there is NATURAL temporal drift between the reference period
+(days 1-3) and later days (e.g. Payment Format mix changes over the 10 days). So the RF's
+"clean" batches must be sampled from the SAME period as the reference (days 1-3), otherwise
+natural drift makes clean batches look drifted and the classifier fails (ROC-AUC ~0.5).
+Report this: (a) it is why the controlled experiment uses same-period clean batches;
+(b) the framework does detect genuine temporal drift, which is a positive, not a bug.
+Honest caveat: the ~0.99 F1 is on synthetic injected drift (circularity limitation);
+it shows the pipeline detects the injected drift types, not that drift is "solved" in the wild.
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
