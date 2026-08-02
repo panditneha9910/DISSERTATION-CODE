@@ -130,6 +130,23 @@ Verified results (80k train / 40k test, targets Receiving Currency + Payment For
 Report BOTH: the MCAR-vs-MAR contrast is a sophisticated result that shows understanding of
 missingness mechanisms and demonstrates the module works when a pattern exists.
 
+## 4e. INTEGRATION LAYER (28 Jul 2026 — verified)
+
+combine_scores() reproduces the project file's worked example EXACTLY: anomaly=0.53,
+drift=0.92, missing=0.51, general mode -> combined 0.776, weights 0.22/0.64/0.14. All three
+profiles sum to 1.0. Layer 2 confidence weighting down-weights scores near 0.5.
+
+Batch-level module scores (each reduced to [0,1]):
+- anomaly = fraction of batch rows > 3 SD from reference on log-amount.
+- drift   = Module 2 RF drift probability.
+- missing = mean predicted null-risk from Module 3 XGBoost.
+
+Verified end-to-end (general mode, threshold 0.5): CLEAN batch combined 0.098 -> PASS;
+CORRUPTED (amount drift) combined 0.535 -> FAIL. Purpose profiles change the decision: the
+drift-corrupted batch FAILS under 'general' (drift-weighted) but PASSES under 'fraud'
+(anomaly-weighted) - intended behaviour of configurable weighting, a discussion point.
+DQFramework(reference, fitted, mode, threshold).assess(batch) returns the full report.
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
