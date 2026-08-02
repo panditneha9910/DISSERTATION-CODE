@@ -176,6 +176,23 @@ drift = RF proba; missing = missing-rate/0.05 capped) and z_thresh=5 for anomaly
 max ~2.4e10 stays below 5 SD on log scale, so only injected extremes register). Anomaly corruption
 x1e9 so injected anomalies clearly exceed the natural tail.
 
+## 4g. SECONDARY DATASET CROSS-VALIDATION (28 Jul 2026 — Credit Card Fraud)
+
+Tests generalisation. Credit Card has REAL fraud labels (Class), so Module 1 is evaluated
+against genuine anomalies (no injection). Amount skew only 17 (vs IBM 858).
+
+Verified results:
+- Module 1 vs real fraud: Isolation Forest ROC-AUC 0.953, LOF 0.956, Z-score(amount) 0.705.
+- Module 2 (statistical KS, first 24h vs second 24h): all tested columns show drift.
+- Module 3 (MAR missing on Amount, predict from V1-V28): ROC-AUC 0.69.
+
+KEY FINDING (strong for Ch 5/6): LOF FAILED on IBM (0.18) but WORKS on Credit Card (0.956).
+Reason: IBM anomalies are global amount-extremes (LOF's weak point); Credit Card fraud lives in
+the multi-dimensional PCA (V) space where LOF's local density is strong. This explains WHEN each
+detector helps and directly supports the multi-detector design (Xu et al. 2023; Han et al. 2022).
+Limitation confirmed: V1-V28 are anonymous PCA columns, so Module 2 structural check is not
+business-meaningful here; statistical check only (as in project limitation #2).
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
