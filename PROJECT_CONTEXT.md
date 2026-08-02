@@ -147,6 +147,35 @@ drift-corrupted batch FAILS under 'general' (drift-weighted) but PASSES under 'f
 (anomaly-weighted) - intended behaviour of configurable weighting, a discussion point.
 DQFramework(reference, fitted, mode, threshold).assess(batch) returns the full report.
 
+## 4f. ABLATION STUDY (28 Jul 2026 — key critical findings for Ch 5/6)
+
+Method: labelled batches (clean should PASS, corrupted should FAIL), corrupted with one
+fault type each (anomaly / drift / missing). Score PASS/FAIL vs true label by F1.
+Decision rule 'max' (fail if any dimension bad) used for A1-A3.
+
+Results (F1):
+- A0 Full framework (max):            0.99  (framework works)
+- A1 Remove Module 1 (anomaly):       0.99  NO DROP -> Module 1 REDUNDANT with Module 2
+- A2 Remove Module 2 (drift):         0.80  drop -> Module 2 contributes
+- A3 Remove Module 3 (missing):       0.79  drop -> Module 3 contributes UNIQUELY
+- A4 equal / severity / adaptive:     0.50  averaging DILUTES single-dimension faults
+- A4 max:                             0.99  fail-if-any-bad is the correct gate rule
+
+KEY FINDINGS (these are critical-analysis gold — report honestly):
+1. Module 1 is redundant with Module 2 on this dataset: an extreme value anomaly is also a
+   distributional shift, so the drift module catches it too. Genuine insight about amount-driven data.
+2. The weighted-averaging integration (incl. the confidence-adaptive scheme) FAILS on single-
+   dimension faults (F1 0.50) because a clean dimension dilutes a real fault below threshold. A
+   max/OR rule works (F1 0.99). This EMPIRICALLY CONFIRMS the literature-review caveat that RABEM's
+   confidence weighting suits same-task model fusion, not a multi-dimension gate.
+3. Implication for the write-up: the confidence-weighted layer is useful for interpretable per-
+   dimension severity + purpose-based prioritisation, but the final PASS/FAIL gate should use max/OR.
+
+NOTE on scales: ablation uses severity scores in [0,1] (anomaly = flagged-fraction/0.01 capped;
+drift = RF proba; missing = missing-rate/0.05 capped) and z_thresh=5 for anomaly flagging (natural
+max ~2.4e10 stays below 5 SD on log scale, so only injected extremes register). Anomaly corruption
+x1e9 so injected anomalies clearly exceed the natural tail.
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
