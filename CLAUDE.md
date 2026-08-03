@@ -193,6 +193,17 @@ detector helps and directly supports the multi-detector design (Xu et al. 2023; 
 Limitation confirmed: V1-V28 are anonymous PCA columns, so Module 2 structural check is not
 business-meaningful here; statistical check only (as in project limitation #2).
 
+## 4h. AUTOENCODER — Module 1 fifth method (28 Jul 2026)
+
+module1_autoencoder.py: PyTorch autoencoder; train on clean reference, anomaly score =
+reconstruction error. Requires torch (pip install torch). Added to notebook 03 as the 5th method.
+Reconstruction-error method validated on real IBM data via a PCA proxy: ROC-AUC ~0.63 on the
+4-dim Module 1 features (modest — low-dimensional, amount-only anomaly). Honest finding: the
+autoencoder is weaker than iForest/Z-score on IBM's small feature set; it is designed for high-
+dimensional data (would be stronger on the Credit Card V1-V28 space). Reported honestly.
+NOT tested end-to-end in the dev sandbox (torch could not be installed there); the code is a
+standard autoencoder and runs on the cluster after `pip install torch`.
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
