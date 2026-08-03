@@ -47,12 +47,24 @@ if _HAS_TORCH:
         def forward(self, x):
             return self.decoder(self.encoder(x))
 
-    def train_autoencoder(X_ref, epochs=20, batch_size=512, lr=1e-3, hidden=16, bottleneck=4):
-        """Train the autoencoder on the clean reference feature matrix."""
+    def train_autoencoder(X_ref, epochs=20, batch_size=512, lr=1e-3, hidden=None, bottleneck=None):
+        """
+        Train the autoencoder on the clean reference feature matrix.
+
+        The bottleneck MUST be smaller than the number of features, otherwise the network
+        can copy its input to its output (no compression) and reconstructs anomalies just
+        as well as normal rows, giving no anomaly signal. By default the architecture is
+        sized from the input: hidden = 2*input_dim, bottleneck = input_dim // 2 (at least 1).
+        """
         torch.manual_seed(SEED)
         np.random.seed(SEED)
         X = torch.tensor(np.asarray(X_ref), dtype=torch.float32)
-        model = Autoencoder(X.shape[1], hidden=hidden, bottleneck=bottleneck)
+        input_dim = X.shape[1]
+        if hidden is None:
+            hidden = max(8, input_dim * 2)
+        if bottleneck is None:
+            bottleneck = max(1, input_dim // 2)   # strictly smaller than input_dim
+        model = Autoencoder(input_dim, hidden=hidden, bottleneck=bottleneck)
         opt = torch.optim.Adam(model.parameters(), lr=lr)
         loss_fn = nn.MSELoss()
         n = len(X)
