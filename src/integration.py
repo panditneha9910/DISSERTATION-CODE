@@ -115,7 +115,8 @@ class DQFramework:
 
     def __init__(self, reference_data, fitted, mode="general", threshold=0.5,
                  amount_col="Amount Paid", combine_mode="weighted", z_thresh=3.0,
-                 anomaly_sig=None, missing_observed_col=None, missing_sig=0.05):
+                 anomaly_sig=None, missing_observed_col=None, missing_sig=0.05,
+                 drift_baseline=None):
         self.reference = reference_data
         self.fitted = fitted            # dict of fitted module objects
         self.mode = mode
@@ -127,6 +128,10 @@ class DQFramework:
         self.anomaly_sig = anomaly_sig            # if set, anomaly fraction -> severity min(1, frac/sig)
         self.missing_observed_col = missing_observed_col  # column whose OBSERVED null-rate is the gate signal
         self.missing_sig = missing_sig            # null-rate that maps to missing-severity 1
+        self.drift_baseline = drift_baseline      # if set, drift proba is rescaled RELATIVE to
+        #                                           normal clean variation: severity =
+        #                                           (proba - baseline)/(1 - baseline), clipped to
+        #                                           [0,1]. Stops mild/normal drift from firing.
 
     def assess(self, batch):
         """
@@ -148,8 +153,13 @@ class DQFramework:
                                    f["ref_log_mean"], f["ref_log_std"], z_thresh=self.z_thresh)
         anomaly = min(1.0, frac / self.anomaly_sig) if self.anomaly_sig else frac
 
-        drift = batch_drift_score(f["drift_clf"],
-                                  f["drift_feature_fn"](self.reference, batch))
+        drift_raw = batch_drift_score(f["drift_clf"],
+                                      f["drift_feature_fn"](self.reference, batch))
+        if self.drift_baseline is not None:
+            drift = min(1.0, max(0.0, (drift_raw - self.drift_baseline)
+                                 / (1.0 - self.drift_baseline + 1e-9)))
+        else:
+            drift = drift_raw
 
         # predicted null-risk (early warning) — available whenever the model is present
         risk = None

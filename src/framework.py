@@ -76,8 +76,8 @@ CC_CONFIG = dict(
 # ======================================================================
 def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
                     z_thresh=5.0, anomaly_sig=0.01, missing_sig=0.05,
-                    drift_rates=(0.05, 0.10), drift_batch_size=20000,
-                    drift_ref_sample=30000, fit_sample=200000, mode="general", seed=42):
+                    drift_rates=(0.05, 0.10), ks_sample=3000,
+                    fit_sample=200000, mode="general", seed=42):
     """
     Fit all three modules on the clean reference and return a configured DQFramework.
 
@@ -92,21 +92,36 @@ def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
     """
     cfg = config
 
-    # a fixed reference sample used both to train the drift classifier and, at runtime,
-    # to compute the per-batch KS drift statistics (keeps streaming fast and consistent)
-    drift_ref = reference_df.sample(min(drift_ref_sample, len(reference_df)),
+    # Reference sample for the drift KS test. IMPORTANT: the KS test's power grows with
+    # sample size, so on 50k-row batches even a trivial distribution difference reads as
+    # drift (p ~ 0). We therefore fix a MODERATE sample size `ks_sample` for the drift
+    # comparison in BOTH training and runtime, so only material effect sizes register.
+    drift_ref = reference_df.sample(min(ks_sample, len(reference_df)),
                                     random_state=seed).reset_index(drop=True)
+
+    def _subsample(d):
+        return d.sample(ks_sample, random_state=seed).reset_index(drop=True) if len(d) > ks_sample else d
+
+    def drift_feature_fn(r, b):
+        return m2.drift_feature_vector(_subsample(r), _subsample(b),
+                                       cfg["m2_numeric"], cfg["m2_categorical"])
+
     # reference used to fit the missing-risk model (capped for speed on huge references)
     fit_ref = (reference_df if fit_sample is None or len(reference_df) <= fit_sample
                else reference_df.sample(fit_sample, random_state=seed).reset_index(drop=True))
 
-    # --- Module 2: drift classifier (trained on injected shift over the reference) ---
+    # --- Module 2: drift classifier (trained on injected shift, KS at the fixed sample) ---
     Xd, yd = m2.build_drift_dataset(
         drift_ref, reference_df, rates=list(drift_rates),
-        batch_size=min(drift_batch_size, len(reference_df)), n_per_rate=20,
+        batch_size=ks_sample, n_per_rate=20,
         numeric_cols=cfg["m2_numeric"], categorical_cols=cfg["m2_categorical"],
         drift_col=cfg["drift_col"], seed=seed)
     drift_clf = m2.train_drift_classifier(Xd, yd)
+    # calibrate the "normal variation" drift level: proba the classifier gives to CLEAN
+    # same-period batches. The 95th percentile is the upper edge of normal drift; anything
+    # materially above it is real drift. This de-sensitises the gate to mild variation.
+    clean_proba = drift_clf.predict_proba(Xd[yd == 0])[:, 1]
+    drift_baseline = float(np.quantile(clean_proba, 0.95)) if len(clean_proba) else None
 
     # --- Module 3: missing-risk model (early-warning; not the gate signal) ---
     mc, mg = m3.inject_missing_values_mar(fit_ref, cfg["m3_target"], rate=0.10,
@@ -120,8 +135,7 @@ def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
     fitted = {
         "ref_log_mean": float(logamt.mean()), "ref_log_std": float(logamt.std()),
         "drift_clf": drift_clf,
-        "drift_feature_fn": (lambda r, b: m2.drift_feature_vector(
-            r, b, cfg["m2_numeric"], cfg["m2_categorical"])),
+        "drift_feature_fn": drift_feature_fn,
         "missing_clf": miss_clf,
         "missing_feature_fn": (lambda b, t: m3.build_module3_features(
             b, t, **cfg["m3_feature_kwargs"])),
@@ -132,28 +146,36 @@ def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
         drift_ref, fitted, mode=mode, threshold=threshold,
         amount_col=cfg["amount_col"], combine_mode=combine_mode,
         z_thresh=z_thresh, anomaly_sig=anomaly_sig,
-        missing_observed_col=cfg["missing_observed_col"], missing_sig=missing_sig)
+        missing_observed_col=cfg["missing_observed_col"], missing_sig=missing_sig,
+        drift_baseline=drift_baseline)
 
 
 # ======================================================================
 # Whole-dataset run: stream the ENTIRE incoming period in batches
 # ======================================================================
 def run_pipeline(data_path, config, batch_size=50000, reference_days=3, max_days=10,
-                 nrows=None, max_batches=None, verbose=True, **build_kwargs):
+                 nrows=None, max_batches=None, verbose=True,
+                 drift_reference="rolling", rolling_window=None, **build_kwargs):
     """
     Load -> split -> build -> stream every incoming batch through the framework.
 
-    Returns (pipeline, summary_df, stats):
-      pipeline   : the built DQFramework (reusable)
-      summary_df : one row per batch (rows, per-module scores, combined, decision)
-      stats      : dict with reference_rows, incoming_rows, batches, fail_batches, time_s
+    drift_reference controls what each batch's DRIFT is measured against:
+      'rolling' (default) — the recent preceding window (last `rolling_window` rows, default
+                 = batch_size). This is what a real monitor does: it flags a batch that
+                 differs from RECENT history, so gradual temporal evolution does not fire
+                 the alarm and only abrupt drift fails. Fixes the fixed-reference failure
+                 mode where every later-period batch looks drifted versus a distant origin.
+      'fixed'  — the built day-1..reference_days reference (the naive baseline; kept so the
+                 contrast can be shown).
+    Anomaly and missing gates always use the fixed reference statistics — only the drift
+    comparison rolls.
 
-    The incoming stream is processed in full (all rows, in `batch_size` chunks), so this
-    exercises the framework on the whole dataset rather than a sample. `nrows` and
-    `max_batches` are for quick development runs only.
+    Returns (pipeline, summary_df, stats). The incoming stream is processed in full (all
+    rows, in `batch_size` chunks). `nrows` / `max_batches` are for quick dev runs only.
     """
     import time
     t0 = time.time()
+    rolling_window = rolling_window or batch_size
 
     df = pp.load_transactions(data_path, nrows=nrows)
     if config.get("time_col") and config["time_col"] in df.columns:
@@ -165,15 +187,20 @@ def run_pipeline(data_path, config, batch_size=50000, reference_days=3, max_days
         incoming = df.iloc[k:].reset_index(drop=True)
 
     if verbose:
-        print("[%s] reference=%d  incoming=%d  batch_size=%d"
-              % (config.get("name", "?"), len(reference), len(incoming), batch_size))
+        print("[%s] reference=%d  incoming=%d  batch_size=%d  drift_reference=%s"
+              % (config.get("name", "?"), len(reference), len(incoming), batch_size, drift_reference))
 
     pipeline = build_framework(reference, config, **build_kwargs)
+    fixed_reference = pipeline.reference     # the built reference sample (day 1..k)
+    # rolling buffer seeded with the END of the reference period, so batch 0 is compared to
+    # the most recent history rather than a cold start.
+    buffer = fixed_reference.tail(rolling_window).reset_index(drop=True)
 
     rows = []
     n = len(incoming)
     for bi, start in enumerate(range(0, n, batch_size)):
         batch = incoming.iloc[start:start + batch_size]
+        pipeline.reference = buffer if drift_reference == "rolling" else fixed_reference
         rep = pipeline.assess(batch)
         rows.append({"batch": bi, "rows": len(batch),
                      **{k: round(v, 4) for k, v in rep["module_scores"].items()},
@@ -181,6 +208,11 @@ def run_pipeline(data_path, config, batch_size=50000, reference_days=3, max_days
                      "decision": rep["decision"],
                      "missing_risk": (round(rep["missing_risk_warning"], 4)
                                       if rep["missing_risk_warning"] is not None else None)})
+        # update the rolling reference only with batches that PASSED, so a bad batch does
+        # not become the baseline (which would false-fail the next, normal batch).
+        if drift_reference == "rolling" and rep["decision"] == "PASS":
+            buffer = (pd.concat([buffer, batch], ignore_index=True)
+                      .tail(rolling_window).reset_index(drop=True))
         if verbose and (bi % 10 == 0):
             print("  batch %3d/%d  rows=%d  combined=%.3f  %s"
                   % (bi, (n + batch_size - 1) // batch_size, len(batch),
@@ -188,8 +220,10 @@ def run_pipeline(data_path, config, batch_size=50000, reference_days=3, max_days
         if max_batches and bi + 1 >= max_batches:
             break
 
+    pipeline.reference = fixed_reference     # restore for any later manual use
     summary = pd.DataFrame(rows)
     stats = dict(reference_rows=len(reference), incoming_rows=len(incoming),
+                 drift_reference=drift_reference,
                  batches=len(summary), fail_batches=int((summary["decision"] == "FAIL").sum()),
                  time_s=round(time.time() - t0, 1))
     if verbose:
