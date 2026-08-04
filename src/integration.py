@@ -33,13 +33,22 @@ PROFILES = {
 # ======================================================================
 # Core: Layer 1 + Layer 2 combination
 # ======================================================================
-def combine_scores(scores, mode="general", threshold=0.5, custom_weights=None):
+def combine_scores(scores, mode="general", threshold=0.5, custom_weights=None,
+                   combine_mode="weighted"):
     """
     Combine per-module batch scores into one data-quality score and decision.
 
     scores : dict with keys 'anomaly', 'drift', 'missing', each a float in [0,1].
     mode   : 'general' | 'fraud' | 'compliance' | 'custom'.
     custom_weights : required if mode == 'custom'; dict of baselines summing to 1.
+    combine_mode :
+        'weighted' (default) — Layer 1 profile x Layer 2 confidence weighted average.
+                    This averages the dimensions, which DILUTES a single-dimension fault
+                    (a batch bad on only one axis is pulled towards the middle).
+        'max'      — gate semantics: the combined score is the strongest single dimension,
+                    so the batch FAILs if ANY dimension is bad. This is the configuration
+                    the ablation study validates for a multi-dimension quality gate.
+    The confidence weights are always returned (informative) even under 'max'.
 
     Returns a dict: combined_score, decision ('PASS'/'FAIL'), final weights, baselines.
     """
@@ -52,11 +61,17 @@ def combine_scores(scores, mode="general", threshold=0.5, custom_weights=None):
     total = sum(raw.values())
     final = {k: raw[k] / total for k in raw}
 
-    combined = sum(final[k] * scores[k] for k in scores)
+    if combine_mode == "max":
+        combined = max(scores.values())
+    elif combine_mode == "weighted":
+        combined = sum(final[k] * scores[k] for k in scores)
+    else:
+        raise ValueError("combine_mode must be 'weighted' or 'max'")
     decision = "FAIL" if combined >= threshold else "PASS"
     return {
         "combined_score": float(combined),
         "decision": decision,
+        "combine_mode": combine_mode,
         "weights": {k: float(v) for k, v in final.items()},
         "baselines": baselines,
         "module_scores": dict(scores),
@@ -99,22 +114,59 @@ class DQFramework:
     """
 
     def __init__(self, reference_data, fitted, mode="general", threshold=0.5,
-                 amount_col="Amount Paid"):
+                 amount_col="Amount Paid", combine_mode="weighted", z_thresh=3.0,
+                 anomaly_sig=None, missing_observed_col=None, missing_sig=0.05):
         self.reference = reference_data
         self.fitted = fitted            # dict of fitted module objects
         self.mode = mode
         self.threshold = threshold
         self.amount_col = amount_col     # 'Amount Paid' (IBM) or 'Amount' (Credit Card)
+        # --- scoring controls (defaults reproduce the original weighted-average behaviour) ---
+        self.combine_mode = combine_mode          # 'weighted' (old default) or 'max' (gate)
+        self.z_thresh = z_thresh                  # z cut-off for the anomaly fraction
+        self.anomaly_sig = anomaly_sig            # if set, anomaly fraction -> severity min(1, frac/sig)
+        self.missing_observed_col = missing_observed_col  # column whose OBSERVED null-rate is the gate signal
+        self.missing_sig = missing_sig            # null-rate that maps to missing-severity 1
 
     def assess(self, batch):
+        """
+        Return a data-quality report for one incoming batch.
+
+        Gate signals (all in [0,1], comparable):
+          anomaly : fraction of rows beyond z_thresh SDs on log-amount. If anomaly_sig is
+                    set, rescaled to a severity (min(1, fraction/anomaly_sig)) so a single-
+                    dimension fault is not lost on a tiny fraction scale.
+          drift   : Random Forest drift probability.
+          missing : if missing_observed_col is set, the OBSERVED null-rate severity of that
+                    column (direct data-quality signal); otherwise the ML model's predicted
+                    null-risk (legacy behaviour).
+        The Module 3 ML model is always reported separately as 'missing_risk_warning'
+        (forward-looking early warning), independent of what drives the gate.
+        """
         f = self.fitted
-        anomaly = batch_anomaly_score(batch[self.amount_col],
-                                      f["ref_log_mean"], f["ref_log_std"])
+        frac = batch_anomaly_score(batch[self.amount_col],
+                                   f["ref_log_mean"], f["ref_log_std"], z_thresh=self.z_thresh)
+        anomaly = min(1.0, frac / self.anomaly_sig) if self.anomaly_sig else frac
+
         drift = batch_drift_score(f["drift_clf"],
                                   f["drift_feature_fn"](self.reference, batch))
-        missing = batch_missing_score(f["missing_clf"],
-                                      f["missing_feature_fn"](batch, f["missing_target"])
-                                      .reindex(columns=f["missing_columns"], fill_value=0))
+
+        # predicted null-risk (early warning) — available whenever the model is present
+        risk = None
+        if f.get("missing_clf") is not None and f.get("missing_feature_fn") is not None:
+            Xb = (f["missing_feature_fn"](batch, f["missing_target"])
+                  .reindex(columns=f["missing_columns"], fill_value=0))
+            risk = batch_missing_score(f["missing_clf"], Xb)
+
+        # gate missing signal
+        if self.missing_observed_col and self.missing_observed_col in batch.columns:
+            mrate = float(batch[self.missing_observed_col].isna().mean())
+            missing = min(1.0, mrate / self.missing_sig) if self.missing_sig else mrate
+        else:
+            missing = risk if risk is not None else 0.0
+
         report = combine_scores({"anomaly": anomaly, "drift": drift, "missing": missing},
-                                mode=self.mode, threshold=self.threshold)
+                                mode=self.mode, threshold=self.threshold,
+                                combine_mode=self.combine_mode)
+        report["missing_risk_warning"] = risk
         return report
