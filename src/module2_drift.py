@@ -169,7 +169,9 @@ def inject_distribution_shift(df, column="Amount Paid", rate=0.10, factor=10.0, 
 # STEP 3 — Random Forest drift classifier
 # ======================================================================
 def build_drift_dataset(reference_df, pool_df, rates, batch_size=20000,
-                        n_per_rate=20, seed=42):
+                        n_per_rate=20, seed=42,
+                        numeric_cols=NUMERIC_COLS, categorical_cols=CATEGORICAL_COLS,
+                        drift_col="Amount Paid"):
     """
     Build a batch-level training/evaluation set for the drift classifier.
 
@@ -190,12 +192,14 @@ def build_drift_dataset(reference_df, pool_df, rates, batch_size=20000,
         for i in range(n_per_rate):
             # clean batch
             batch = pool_df.sample(n=batch_size, random_state=int(rng.integers(1e9)))
-            X.append(drift_feature_vector(reference_df, batch)); y.append(0)
+            X.append(drift_feature_vector(reference_df, batch,
+                                          numeric_cols, categorical_cols)); y.append(0)
             # drifted batch
             batch = pool_df.sample(n=batch_size, random_state=int(rng.integers(1e9)))
-            drifted = inject_distribution_shift(batch, rate=rate,
+            drifted = inject_distribution_shift(batch, column=drift_col, rate=rate,
                                                 seed=int(rng.integers(1e9)))
-            X.append(drift_feature_vector(reference_df, drifted)); y.append(1)
+            X.append(drift_feature_vector(reference_df, drifted,
+                                          numeric_cols, categorical_cols)); y.append(1)
     return np.array(X), np.array(y)
 
 

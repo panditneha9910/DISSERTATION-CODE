@@ -28,15 +28,33 @@ import integration as ig
 SEED = 42
 SEVERITY = {"anomaly": 0.3, "drift": 0.5, "missing": 0.2}
 
+# Column roles for corruption + scoring. Defaults are the IBM schema; pass a `cols`
+# dict to run the same ablation on another dataset (e.g. Credit Card) without changing
+# any logic. Keys:
+#   amount  : column corrupted for the anomaly fault + used by the anomaly score
+#   drift   : column the distribution-shift is injected into
+#   missing : column set to NaN for the missing fault + used by the missing score
+#   drift_numeric / drift_categorical : column lists for the drift feature vector
+def _default_cols():
+    return {
+        "amount": "Amount Paid",
+        "drift": "Amount Paid",
+        "missing": "Receiving Currency",
+        "drift_numeric": m2.NUMERIC_COLS,
+        "drift_categorical": m2.CATEGORICAL_COLS,
+    }
+
 
 # ----------------------------------------------------------------------
 # Corruption: make a batch that a specific module should catch
 # ----------------------------------------------------------------------
-def corrupt_batch(batch, kind, seed=42):
+def corrupt_batch(batch, kind, seed=42, cols=None):
     """
     kind: 'anomaly' (extreme values), 'drift' (distribution shift),
           'missing' (inject missing values), or 'mixed'.
+    cols: column-role dict (see _default_cols); defaults to the IBM schema.
     """
+    cols = cols or _default_cols()
     b = batch.copy()
     rng = np.random.default_rng(seed)
     if kind in ("anomaly", "mixed"):
@@ -44,58 +62,65 @@ def corrupt_batch(batch, kind, seed=42):
         # finding): x1000 is only ~1.9 SD on the log scale, so we use a much larger factor.
         n = int(len(b) * 0.02)
         idx = rng.choice(b.index, size=n, replace=False)
-        b.loc[idx, "Amount Paid"] = b.loc[idx, "Amount Paid"] * 1_000_000_000
+        b.loc[idx, cols["amount"]] = b.loc[idx, cols["amount"]] * 1_000_000_000
     if kind in ("drift", "mixed"):
-        b = m2.inject_distribution_shift(b, column="Amount Paid", rate=0.25,
+        b = m2.inject_distribution_shift(b, column=cols["drift"], rate=0.25,
                                          factor=50, seed=int(rng.integers(1e9)))
     if kind in ("missing", "mixed"):
         n = int(len(b) * 0.20)
         idx = rng.choice(b.index, size=n, replace=False)
-        b.loc[idx, "Receiving Currency"] = np.nan
+        b.loc[idx, cols["missing"]] = np.nan
     return b
 
 
 # ----------------------------------------------------------------------
 # Batch -> three module scores
 # ----------------------------------------------------------------------
-def compute_scores(batch, reference, fitted):
+def compute_scores(batch, reference, fitted, cols=None):
     """
     Return {'anomaly','drift','missing'} batch severity scores in [0,1], where 0 is
     clean and ~1 is a clear single-dimension fault. The raw signals are on different
     natural scales (a flagged-fraction, a probability, a missing-rate), so anomaly and
     missing are rescaled to a common severity by a 'significant level': 1% of rows
     flagged, or 5% missing, maps to severity 1.
+    cols: column-role dict (see _default_cols); defaults to the IBM schema.
     """
+    cols = cols or _default_cols()
     # z_thresh=5 so natural heavy-tail extremes (max ~2.4e10 on this data sit below 5 SD
     # on the log scale) do not register as anomalies; only injected extremes do.
-    frac_anom = ig.batch_anomaly_score(batch["Amount Paid"],
+    frac_anom = ig.batch_anomaly_score(batch[cols["amount"]],
                                        fitted["ref_log_mean"], fitted["ref_log_std"],
                                        z_thresh=5.0)
     anomaly = min(1.0, frac_anom / 0.01)
     drift = ig.batch_drift_score(fitted["drift_clf"],
-                                 m2.drift_feature_vector(reference, batch))
-    missing_rate = float(batch["Receiving Currency"].isna().mean())
+                                 m2.drift_feature_vector(reference, batch,
+                                                         cols["drift_numeric"],
+                                                         cols["drift_categorical"]))
+    missing_rate = float(batch[cols["missing"]].isna().mean())
     missing = min(1.0, missing_rate / 0.05)
     return {"anomaly": anomaly, "drift": drift, "missing": missing}
 
 
-def build_labelled_scores(reference, ref_pool, fitted, n_each=15, seed=42):
+def build_labelled_scores(reference, ref_pool, fitted, n_each=15, seed=42,
+                          cols=None, batch_size=20000):
     """
     Build labelled batches: clean (label 0) and corrupted (label 1) of each fault type.
     Returns list of (scores_dict, label).
+    cols: column-role dict (see _default_cols); defaults to the IBM schema.
     """
+    cols = cols or _default_cols()
     rng = np.random.default_rng(seed)
     data = []
     kinds = ["anomaly", "drift", "missing"]
     for i in range(n_each):
         # clean
-        clean = ref_pool.sample(20000, random_state=int(rng.integers(1e9))).reset_index(drop=True)
-        data.append((compute_scores(clean, reference, fitted), 0))
+        clean = ref_pool.sample(batch_size, random_state=int(rng.integers(1e9))).reset_index(drop=True)
+        data.append((compute_scores(clean, reference, fitted, cols), 0))
         # one corrupted batch per fault type
         for kind in kinds:
-            base = ref_pool.sample(20000, random_state=int(rng.integers(1e9))).reset_index(drop=True)
-            corr = corrupt_batch(base, kind, seed=int(rng.integers(1e9)))
-            data.append((compute_scores(corr, reference, fitted), 1))
+            base = ref_pool.sample(batch_size, random_state=int(rng.integers(1e9))).reset_index(drop=True)
+            corr = corrupt_batch(base, kind, seed=int(rng.integers(1e9)), cols=cols)
+            data.append((compute_scores(corr, reference, fitted, cols), 1))
     return data
 
 

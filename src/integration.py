@@ -98,15 +98,17 @@ class DQFramework:
     focused on orchestration; see the notebook for how they are built.
     """
 
-    def __init__(self, reference_data, fitted, mode="general", threshold=0.5):
+    def __init__(self, reference_data, fitted, mode="general", threshold=0.5,
+                 amount_col="Amount Paid"):
         self.reference = reference_data
         self.fitted = fitted            # dict of fitted module objects
         self.mode = mode
         self.threshold = threshold
+        self.amount_col = amount_col     # 'Amount Paid' (IBM) or 'Amount' (Credit Card)
 
     def assess(self, batch):
         f = self.fitted
-        anomaly = batch_anomaly_score(batch["Amount Paid"],
+        anomaly = batch_anomaly_score(batch[self.amount_col],
                                       f["ref_log_mean"], f["ref_log_std"])
         drift = batch_drift_score(f["drift_clf"],
                                   f["drift_feature_fn"](self.reference, batch))
