@@ -181,10 +181,30 @@ x1e9 so injected anomalies clearly exceed the natural tail.
 Tests generalisation. Credit Card has REAL fraud labels (Class), so Module 1 is evaluated
 against genuine anomalies (no injection). Amount skew only 17 (vs IBM 858).
 
-Verified results:
-- Module 1 vs real fraud: Isolation Forest ROC-AUC 0.953, LOF 0.956, Z-score(amount) 0.705.
-- Module 2 (statistical KS, first 24h vs second 24h): all tested columns show drift.
-- Module 3 (MAR missing on Amount, predict from V1-V28): ROC-AUC 0.69.
+Verified results (FULL framework run through the same parameterised src, notebook 08, 4 Aug 2026):
+- Module 1 vs real fraud: Isolation Forest ROC-AUC 0.953, LOF 0.956, Z-score(amount) 0.705,
+  Autoencoder 0.956 (PR-AUC 0.521, highest of the four on this imbalanced set).
+- Module 2 statistical (KS, first half vs second half): all tested columns drift (V3 KS 0.51,
+  V1 0.42) — natural temporal drift.
+- Module 2 RF drift classifier (trained on injected shift over reference period, evaluated at
+  held-out 20%/30% rates): ROC-AUC 1.000, F1 1.000. CAVEAT: near-perfect because injected
+  distribution shift is trivially separable; this is the known circularity limitation, present
+  it as "detects injected drift reliably", not "perfect drift detection".
+- Module 3 (MAR missing on Amount, predict from V1-V28, via module3_missing): ROC-AUC 0.722.
+- Integration (DQFramework, general profile): clean batch combined 0.107 PASS; corrupted batch
+  combined 0.556 FAIL. NOTE: the corrupted batch (x1e9 on Amount) is caught by the DRIFT module
+  (0.94), not the anomaly module (0.021) — the x1e9 shift moves the distribution. Framework
+  catches the fault; do not claim the anomaly module caught it.
+- Ablation (max scheme): full framework F1 1.000; remove Module 2 (drift) or Module 3 (missing)
+  -> F1 0.80 (each contributes); remove Module 1 (anomaly) -> F1 1.000 (anomaly fault overlaps
+  with what drift catches here, so anomaly looks redundant on CC — honest). Weighting schemes:
+  equal 0.500, severity 0.594, adaptive 0.571, max 1.000 — same dilution finding as IBM (averaging
+  unsuitable for a multi-dimension gate).
+
+Framework-generalisation claim now supported: the identical src modules run end-to-end on both
+datasets (Modules 1-3 + integration + ablation), driven only by a column config (IBM defaults vs
+Credit Card config). Backward compatibility verified: IBM notebooks call the changed functions
+with defaults only, and the defaults equal the previously hardcoded IBM values.
 
 KEY FINDING (strong for Ch 5/6): LOF FAILED on IBM (0.18) but WORKS on Credit Card (0.956).
 Reason: IBM anomalies are global amount-extremes (LOF's weak point); Credit Card fraud lives in
