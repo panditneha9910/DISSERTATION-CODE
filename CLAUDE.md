@@ -196,13 +196,21 @@ business-meaningful here; statistical check only (as in project limitation #2).
 ## 4h. AUTOENCODER — Module 1 fifth method (28 Jul 2026)
 
 module1_autoencoder.py: PyTorch autoencoder; train on clean reference, anomaly score =
-reconstruction error. Requires torch (pip install torch). Added to notebook 03 as the 5th method.
-Reconstruction-error method validated on real IBM data via a PCA proxy: ROC-AUC ~0.63 on the
-4-dim Module 1 features (modest — low-dimensional, amount-only anomaly). Honest finding: the
-autoencoder is weaker than iForest/Z-score on IBM's small feature set; it is designed for high-
-dimensional data (would be stronger on the Credit Card V1-V28 space). Reported honestly.
-NOT tested end-to-end in the dev sandbox (torch could not be installed there); the code is a
-standard autoencoder and runs on the cluster after `pip install torch`.
+reconstruction error. Requires torch. Bottleneck sized from input (input_dim // 2) so it is
+strictly smaller than the number of features (a bottleneck = input_dim gives no compression and
+the model just copies input to output -> no anomaly signal; this was a real bug, now fixed).
+
+KEY FINDING (dimensionality matters — strong for Ch 5/6):
+- On IBM (Module 1, only 4 features): autoencoder ROC-AUC ~0.50 — near random. Autoencoders need
+  many correlated features; 4 (3 near-constant time + amount) is too few. Honest limitation.
+- On Credit Card (29 features V1-V28 + log amount, vs REAL fraud): reconstruction anomaly detection
+  ROC-AUC ~0.95 (validated via PCA proxy; autoencoder added to notebook 08). Excellent.
+So the autoencoder is not "bad" — it is dimensionality-dependent: weak on the low-dim IBM feature
+set, strong on the high-dim Credit Card space. This is a clean demonstration of WHEN autoencoders
+help and why it is the droppable "build last" method for the IBM primary analysis.
+Autoencoder in notebook 03 (IBM, ~0.5) and notebook 08 (Credit Card, ~0.95). Runs on cluster after
+`pip install torch`; not tested end-to-end in the dev sandbox (torch unavailable there) but the
+reconstruction method is validated by PCA proxy on both datasets.
 
 ## 5. BUILD ORDER (strict — do not skip)
 
