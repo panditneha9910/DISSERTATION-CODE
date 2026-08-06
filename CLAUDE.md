@@ -232,6 +232,42 @@ Autoencoder in notebook 03 (IBM, ~0.5) and notebook 08 (Credit Card, ~0.95). Run
 `pip install torch`; not tested end-to-end in the dev sandbox (torch unavailable there) but the
 reconstruction method is validated by PCA proxy on both datasets.
 
+## 4i. FRAMEWORK ORCHESTRATOR + SCORING FIX + FULL-SCALE RUN (4 Aug 2026)
+
+src/framework.py: single developer/tester entry point.
+- build_framework(reference, config) fits all three modules and returns a ready DQFramework
+  in the ABLATION-VALIDATED gate config (max combine + severity-scaled anomaly + observed
+  missing-rate gate). Same code, two datasets (IBM_CONFIG / CC_CONFIG).
+- run_pipeline(data_path, config) streams the ENTIRE incoming period in batches (whole-dataset
+  run), returns per-batch PASS/FAIL summary + throughput.
+
+Scoring fix (integration.py, backward compatible — old defaults reproduce notebook 06):
+- combine_scores gains combine_mode 'weighted' (old) | 'max' (gate). Ablation shows averaging
+  dilutes a single-dimension fault; max is the correct gate rule.
+- DQFramework: anomaly fraction rescaled to severity (min(1, frac/anomaly_sig)); missing gate =
+  OBSERVED null-rate severity (the Module 3 ML model is reported separately as an early-warning
+  'missing_risk', not the gate signal). This makes the shipped framework match what the ablation
+  validates (Issue A resolved). LOF excluded from the runtime gate (not scalable); runtime
+  anomaly signal is the log-amount z-score.
+
+DRIFT FIX (notebook 09) — real finding, NOT presented as a limitation:
+- Naive fixed-reference drift gate flagged 61/61 incoming batches (100%) as drift. Two causes:
+  (1) fixed day-1..3 reference conflates natural temporal drift with quality problems;
+  (2) KS test is over-powered at 50k-row batches (trivial differences read as drift, p~0).
+- Fix = rolling reference (compare each batch to recent history) + KS test on a fixed ~3k sample
+  (controls power) + drift calibrated to normal clean variation + failed batches excluded from
+  the rolling buffer.
+- Verified on controlled synthetic data (known faults in known batches): recall 3/3 fault types,
+  0 false alarms on clean batches even with gradual drift.
+- FULL-SCALE REAL RUN (HI-Small, all 3,000,485 incoming rows, ~219k rows/s): fixed reference
+  12/61 FAIL (20%); rolling reference 3/61 FAIL (5%). Decomposition (state honestly): KS
+  subsampling + calibration took 100% -> 20%; rolling reference took 20% -> 5%. Rolling did NOT
+  do all the work alone.
+- Caveats: this run mainly exercises the DRIFT dimension (real incoming has no injected
+  anomaly/missing faults, so those scores ~0; they are validated in ablation + synthetic tests).
+  The 3 rolling FAILs are "materially different from recent history"; genuineness would need
+  domain ground truth.
+
 ## 5. BUILD ORDER (strict — do not skip)
 
 - [DONE] Stage 0: environment + data load check.
