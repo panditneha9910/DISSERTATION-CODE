@@ -1,343 +1,368 @@
-# PROJECT CONTEXT — DQ Monitoring Framework (implementation handoff)
-# Neha Pandit | MSc Data Science, University of Surrey | Submission: 4pm, 1 September 2026
-#
-# PURPOSE OF THIS FILE
-# This is the single source of truth for the implementation. If you open a fresh
-# Claude (e.g. on the website inside the HPC) or hand this to anyone, point them
-# here first. It captures every decision, every data fact, and the build plan, so
-# no context is trapped in a chat. Keep it in the repo root and update it as you go.
+# Project Context — Data Quality Monitoring Framework
+
+Neha Pandit, MSc Data Science, University of Surrey. Submission: 1 September 2026.
+
+This is my working record for the implementation. It keeps the design decisions, the facts I
+found in the data, and the results in one place so the reasoning behind the code is not scattered
+across notebooks. I update it as the project moves.
 
 ---
 
-## 1. WHAT WE ARE BUILDING (one paragraph)
+## 1. What I am building
 
-An automated quality gate that sits between development and QA in a financial data
-pipeline. A batch of incoming data is compared against a clean reference batch and
-passed through three ML-based checks that run in parallel: value-level anomaly
-detection (Module 1), schema and distribution drift detection (Module 2), and
-missing-value prediction (Module 3). Their outputs are combined by an integration
-layer into one score in [0,1]; a batch scoring at or above 0.5 fails and returns to
-the developer, below 0.5 passes to QA. An ablation study measures each module's
-contribution.
+An automated quality gate that sits between development and QA in a financial data pipeline. A
+batch of incoming data is compared against a clean reference batch and passed through three
+ML-based checks that run in parallel: value-level anomaly detection (Module 1), schema and
+distribution drift detection (Module 2), and missing-value prediction (Module 3). An integration
+layer combines their outputs into a single score in [0,1]. A batch scoring at or above 0.5 fails
+and goes back to the developer; below 0.5 it passes to QA. An ablation study then measures how
+much each module actually contributes.
 
-Entry point: `DQFramework(batch_data, reference_data, mode="general", threshold=0.5)`
-
----
-
-## 2. DATASETS (verified from the actual files, 27 July 2026)
-
-### Primary — IBM HI-Small_Trans.csv
-- Location on Mac: `DISSERTATION/DATASET/archive (2)/HI-Small_Trans.csv`
-- Rows: 5,078,345. Size: 454 MB.
-- REAL columns (the project file's assumed schema was wrong — use these):
-  `Timestamp, From Bank, Account, To Bank, Account.1, Amount Received,
-   Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering`
-  (pandas auto-renames the second `Account` to `Account.1`.)
-- Numeric anomaly/missing target: `Amount Paid` (or `Amount Received`).
-- Label: `Is Laundering` (real fraud, ~0.1% positive).
-
-### Secondary — creditcard.csv (ULB)
-- Location: `DISSERTATION/DATASET/Secondary -Credit Card Fraud/creditcard.csv`
-- Rows: 284,807. Columns: `Time, V1..V28, Amount, Class`. Label: `Class`.
-- Scope: Module 1 full; Module 2 statistical drift only (V1-V28 are PCA, no business
-  meaning, so no structural drift check); Module 3 full.
+The entry point is `DQFramework(batch_data, reference_data, mode="general", threshold=0.5)`.
 
 ---
 
-## 3. DATA FACTS DISCOVERED (these correct or extend the project file)
+## 2. Datasets (checked against the actual files, 27 July 2026)
 
-1. NO natural missing values in the IBM data → Module 3 relies entirely on injected
-   missingness. (Confirms project design.)
-2. `Amount Paid` is extremely heavy-tailed: skew ~219, median ~2,130, max ~1.4e11 →
-   log-transform is essential.
-3. `Amount Paid` == `Amount Received` for ~99.4% of rows → use one amount column.
-4. `Account` / `Account.1` are near-unique (~298k distinct in 500k) → DROP as features.
-5. Low-cardinality categoricals: Receiving/Payment Currency (15), Payment Format (7).
-6. Class imbalance: laundering ~0.1%.
-7. TIME SPAN CORRECTION: project file says 10 days. The file actually runs 1-18 Sep,
-   but days 11-18 are a negligible tail (a few hundred rows total). Days 1-10 carry
-   the volume (200k-1.1M/day). The pipeline drops the tail (`max_days=10`).
-8. DEV TRAP: reading a head-sample (`pd.read_csv(nrows=N)`) returns almost only day 1,
-   because daily volumes are uneven. Anything involving the temporal split MUST use
-   the full file (fine on the HPC).
+### Primary: IBM HI-Small_Trans.csv
+- 5,078,345 rows, 454 MB.
+- The real columns are `Timestamp, From Bank, Account, To Bank, Account.1, Amount Received,
+  Receiving Currency, Amount Paid, Payment Currency, Payment Format, Is Laundering`. My original
+  plan assumed a different schema, so I use these. (Pandas auto-renames the second `Account` to
+  `Account.1`.)
+- Numeric target for anomalies and missingness: `Amount Paid` (or `Amount Received`).
+- Label: `Is Laundering`, real fraud at roughly 0.1% positive.
 
----
-
-## 4. FINALISED PREPROCESSING DECISIONS (grounded in EDA, in src/preprocessing.py)
-
-- Reference vs incoming split = TEMPORAL by calendar day: days 1-3 = clean reference
-  (~2.08M rows), days 4-10 = incoming batches (~3.0M rows). Mirrors real monitoring.
-- Module 1 features = `log1p(Amount Paid)` + hour, day-of-week, day; standardised.
-- No leakage: the StandardScaler is fit on the REFERENCE batch only, then applied to
-  incoming batches. Same pattern for any future transformer.
-- Fixed random seed = 42 everywhere for reproducibility.
+### Secondary: creditcard.csv (ULB Credit Card Fraud)
+- 284,807 rows. Columns `Time, V1..V28, Amount, Class`, label `Class`.
+- Scope: Module 1 in full; Module 2 statistical drift only (V1 to V28 are PCA components with no
+  business meaning, so the structural check does not apply); Module 3 in full.
 
 ---
 
-## 4b. ANOMALY INJECTION CALIBRATION (decided 27 Jul 2026 — for methodology chapter)
+## 3. What I found in the data (corrects or extends my original plan)
 
-The project file's default anomaly injection (rate 2%, multiplier x50) was tested on the
-real data and found INSUFFICIENT: amounts are so heavy-tailed (reference 99.9th percentile
-~592M, max ~24bn) that a x50 anomaly typically lands below the 88th percentile of natural
-amounts — it is not an outlier. Injecting 2% also makes anomalies cluster, which breaks LOF.
+1. There are no natural missing values in the IBM data, so Module 3 works entirely on injected
+   missingness. This matches the design.
+2. `Amount Paid` is extremely heavy-tailed (skew around 219, median about 2,130, max about
+   1.4e11), so a log transform is essential.
+3. `Amount Paid` equals `Amount Received` for about 99.4% of rows, so I use one amount column.
+4. `Account` and `Account.1` are close to unique (around 298k distinct in 500k rows), so I drop
+   them as features.
+5. The low-cardinality categoricals are Receiving and Payment Currency (15 each) and Payment
+   Format (7).
+6. The classes are imbalanced: laundering is about 0.1%.
+7. The time span needed correcting. My plan said 10 days. The file actually spans 1 to 18
+   September, but days 11 to 18 are a tiny tail of a few hundred rows. Days 1 to 10 carry the
+   volume (200k to 1.1M per day), so the pipeline drops the tail with `max_days=10`.
+8. A trap I hit early: reading a head sample with `pd.read_csv(nrows=N)` returns almost only day
+   one, because the daily volumes are so uneven. Anything that uses the temporal split has to read
+   the full file, which is fine on the HPC.
 
-DECISION: use a RARE + EXTREME injection for Module 1 — rate 0.5%, multiplier 1000 — so
-anomalies are genuine outliers without clustering. Report ROC-AUC and PR-AUC, not a fixed
-0.5 threshold. Document this calibration in the methodology as a data-driven adjustment.
+---
 
-Verified Module 1 results at this setting (100k reference / 100k incoming sample):
-  Z-score ROC-AUC 0.88 (best) · Isolation Forest 0.81 · IQR 0.59 · LOF 0.18 (fails).
-The LOF failure is a genuine finding, not a bug: LOF is a local detector and the anomalies
-are global extremes. It is direct evidence for the multi-detector design (Xu et al. 2023;
-Han et al. 2022) — report it, do not hide it. PR-AUC is low across detectors because natural
-extremes compete with injected anomalies; this is an honest limitation of the data.
+## 4. Preprocessing decisions (from the EDA, in src/preprocessing.py)
 
-## 4c. MODULE 2 FINDINGS (28 Jul 2026 — for methodology/results)
+- The reference/incoming split is temporal, by calendar day: days 1 to 3 are the clean reference
+  (about 2.08M rows), days 4 to 10 are the incoming batches (about 3.0M rows). This mirrors real
+  monitoring.
+- Module 1 features are `log1p(Amount Paid)` plus hour, day of week, and day, all standardised.
+- To avoid leakage, the StandardScaler is fit on the reference batch only and then applied to the
+  incoming batches. I use the same pattern for any transformer.
+- I fix the random seed at 42 throughout for reproducibility.
 
-All three steps work. Verified on real data:
-- Step 1 (structural): detects dropped columns and dtype changes exactly (deterministic).
-- Step 2 (statistical): KS flags shifted numeric columns, Chi-squared flags categorical
-  shifts, and unchanged columns are correctly left alone.
-- Step 3 (RF drift classifier): F1 ~0.99, ROC-AUC ~1.00 on the controlled experiment
-  (train drift at 5/10%, evaluate at 20/30%, different seeds).
+---
 
-IMPORTANT design finding: there is NATURAL temporal drift between the reference period
-(days 1-3) and later days (e.g. Payment Format mix changes over the 10 days). So the RF's
-"clean" batches must be sampled from the SAME period as the reference (days 1-3), otherwise
-natural drift makes clean batches look drifted and the classifier fails (ROC-AUC ~0.5).
-Report this: (a) it is why the controlled experiment uses same-period clean batches;
-(b) the framework does detect genuine temporal drift, which is a positive, not a bug.
-Honest caveat: the ~0.99 F1 is on synthetic injected drift (circularity limitation);
-it shows the pipeline detects the injected drift types, not that drift is "solved" in the wild.
+## 4b. Anomaly injection calibration (27 July 2026, for the methodology chapter)
 
-## 4d. MODULE 3 FINDINGS (28 Jul 2026 — for methodology/results)
+My original injection settings (2% rate, times 50 multiplier) turned out to be too weak on the
+real data. The amounts are so heavy-tailed (the reference 99.9th percentile is around 592M and the
+max around 24bn) that a times-50 anomaly usually lands below the 88th percentile of natural
+amounts, so it is not really an outlier. Injecting at 2% also makes the anomalies cluster, which
+breaks LOF.
 
-Per-column XGBoost predicts WHETHER a value is missing (early warning), not what it
-should be (contrast with DataWig). scale_pos_weight = non-missing/missing handles imbalance.
+So I switched to a rare and extreme injection for Module 1: 0.5% rate, times 1000 multiplier. That
+makes the anomalies genuine outliers without clustering. I report ROC-AUC and PR-AUC rather than a
+fixed 0.5 threshold, and I document this calibration in the methodology as a data-driven
+adjustment.
 
-CRITICAL design decision (ties to Rubin 1976 in the lit review): the project's default
-injection is MCAR (missing completely at random). MCAR is, by definition, independent of
-the other columns, so it CANNOT be predicted — the classifier scores ROC-AUC ~0.50. This
-is a correct theoretical result, not a failure. Real pipeline missingness is usually MAR/MNAR
-(depends on other values). We therefore added inject_missing_values_mar (missingness depends
-on transaction amount, strength = rank**power, power=2 default) so the task is realistic and
-learnable. Module 3 is evaluated on MAR, with MCAR shown as a contrast.
+Module 1 results at this setting (100k reference, 100k incoming sample): Z-score ROC-AUC 0.88
+(best), Isolation Forest 0.81, IQR 0.59, LOF 0.18 (fails). The LOF failure is a real finding, not
+a bug. LOF is a local density detector and these anomalies are global extremes, which it is blind
+to. That is direct evidence for the multi-detector design (Xu et al. 2023; Han et al. 2022), so I
+report it rather than hide it. PR-AUC is low across the detectors because the natural extremes
+compete with the injected anomalies, which is an honest limitation of this data.
 
-Verified results (80k train / 40k test, targets Receiving Currency + Payment Format):
-- MAR:  ROC-AUC 0.764, avg F1 0.30 (recall high ~0.79 via scale_pos_weight, precision low
-  ~0.18 because missingness is rare and the signal moderate — ROC-AUC is the fair metric).
-- MCAR: ROC-AUC ~0.50 (unpredictable, as theory predicts).
-Report BOTH: the MCAR-vs-MAR contrast is a sophisticated result that shows understanding of
-missingness mechanisms and demonstrates the module works when a pattern exists.
+## 4c. Module 2 findings (28 July 2026)
 
-## 4e. INTEGRATION LAYER (28 Jul 2026 — verified)
+All three steps work on the real data.
+- The structural check detects dropped columns and dtype changes exactly, and it is deterministic.
+- The statistical check flags shifted numeric columns with the KS test and categorical shifts with
+  Chi-squared, and it correctly leaves unchanged columns alone.
+- The RF drift classifier reaches F1 around 0.99 and ROC-AUC around 1.00 on the controlled
+  experiment (trained on drift at 5% and 10%, evaluated at 20% and 30% with different seeds).
 
-combine_scores() reproduces the project file's worked example EXACTLY: anomaly=0.53,
-drift=0.92, missing=0.51, general mode -> combined 0.776, weights 0.22/0.64/0.14. All three
-profiles sum to 1.0. Layer 2 confidence weighting down-weights scores near 0.5.
+One design finding matters here. There is natural temporal drift between the reference period
+(days 1 to 3) and the later days, for example the Payment Format mix changes over the ten days. So
+the classifier's "clean" batches have to be sampled from the same period as the reference,
+otherwise natural drift makes clean batches look drifted and the classifier collapses to ROC-AUC
+around 0.5. I report this two ways: it explains why the controlled experiment uses same-period
+clean batches, and it shows the framework genuinely detects real temporal drift, which is a
+positive rather than a fault. Honest caveat: the 0.99 F1 is measured on synthetic injected drift,
+so it shows the pipeline detects the injected drift types, not that drift is solved in the wild.
 
-Batch-level module scores (each reduced to [0,1]):
-- anomaly = fraction of batch rows > 3 SD from reference on log-amount.
-- drift   = Module 2 RF drift probability.
-- missing = mean predicted null-risk from Module 3 XGBoost.
+## 4d. Module 3 findings (28 July 2026)
 
-Verified end-to-end (general mode, threshold 0.5): CLEAN batch combined 0.098 -> PASS;
-CORRUPTED (amount drift) combined 0.535 -> FAIL. Purpose profiles change the decision: the
-drift-corrupted batch FAILS under 'general' (drift-weighted) but PASSES under 'fraud'
-(anomaly-weighted) - intended behaviour of configurable weighting, a discussion point.
-DQFramework(reference, fitted, mode, threshold).assess(batch) returns the full report.
+A per-column XGBoost predicts whether a value will be missing (an early warning), rather than what
+it should be, which is the opposite of imputation tools like DataWig. Class imbalance is handled
+with `scale_pos_weight` set to non-missing over missing.
 
-## 4f. ABLATION STUDY (28 Jul 2026 — key critical findings for Ch 5/6)
+The key decision ties back to Rubin (1976) in my literature review. The default injection is MCAR
+(missing completely at random). By definition MCAR is independent of the other columns, so it
+cannot be predicted, and the classifier scores ROC-AUC around 0.50. That is a correct theoretical
+result, not a failure. Real pipeline missingness is usually MAR or MNAR, where it depends on other
+values, so I added `inject_missing_values_mar`, where the chance of a value being missing depends
+on the transaction amount (strength = rank to the power, power 2 by default). That makes the task
+realistic and learnable. Module 3 is evaluated on MAR, with MCAR shown as a contrast.
 
-Method: labelled batches (clean should PASS, corrupted should FAIL), corrupted with one
-fault type each (anomaly / drift / missing). Score PASS/FAIL vs true label by F1.
-Decision rule 'max' (fail if any dimension bad) used for A1-A3.
+Results (80k train, 40k test, targets Receiving Currency and Payment Format):
+- MAR: ROC-AUC 0.764, average F1 0.30. Recall is high (about 0.79) because of `scale_pos_weight`,
+  and precision is low (about 0.18) because missingness is rare and the signal is only moderate,
+  so ROC-AUC is the fair metric here.
+- MCAR: ROC-AUC around 0.50, unpredictable, exactly as the theory predicts.
+
+I report both. The MCAR-versus-MAR contrast shows I understand the missingness mechanisms and that
+the module works when a real pattern exists.
+
+## 4e. Integration layer (28 July 2026)
+
+`combine_scores()` reproduces my worked example exactly: anomaly 0.53, drift 0.92, missing 0.51 in
+general mode gives a combined 0.776 with weights 0.22, 0.64, 0.14. All three purpose profiles sum
+to 1.0. The Layer 2 confidence weighting down-weights scores that sit near 0.5.
+
+Each module is reduced to a single [0,1] batch score:
+- anomaly is the fraction of batch rows more than 3 SD from the reference on log-amount,
+- drift is the Module 2 RF drift probability,
+- missing is the mean predicted null-risk from the Module 3 XGBoost.
+
+End-to-end (general mode, threshold 0.5): a clean batch gives a combined 0.098 and passes, a
+corrupted (amount-drift) batch gives 0.535 and fails. The purpose profiles change the decision:
+the drift-corrupted batch fails under the general profile (which weights drift) but passes under
+the fraud profile (which weights anomalies). That is the intended behaviour of configurable
+weighting, and a good discussion point. `DQFramework(reference, fitted, mode, threshold).assess(
+batch)` returns the full report.
+
+## 4f. Ablation study (28 July 2026, the critical findings for Chapters 5 and 6)
+
+Method: I build labelled batches (clean ones should pass, corrupted ones should fail), each
+corrupted with a single fault type (anomaly, drift, or missing), then score the pass/fail decision
+against the true label with F1. The decision rule for A1 to A3 is "max", which fails a batch if
+any dimension looks bad.
 
 Results (F1):
-- A0 Full framework (max):            0.99  (framework works)
-- A1 Remove Module 1 (anomaly):       0.99  NO DROP -> Module 1 REDUNDANT with Module 2
-- A2 Remove Module 2 (drift):         0.80  drop -> Module 2 contributes
-- A3 Remove Module 3 (missing):       0.79  drop -> Module 3 contributes UNIQUELY
-- A4 equal / severity / adaptive:     0.50  averaging DILUTES single-dimension faults
-- A4 max:                             0.99  fail-if-any-bad is the correct gate rule
+- A0, full framework (max): 0.99, so the framework works.
+- A1, remove Module 1 (anomaly): 0.99, no drop, so Module 1 is redundant with Module 2 here.
+- A2, remove Module 2 (drift): 0.80, a drop, so Module 2 contributes.
+- A3, remove Module 3 (missing): 0.79, a drop, so Module 3 contributes on its own.
+- A4, equal / severity / adaptive averaging: 0.50, so averaging dilutes single-dimension faults.
+- A4, max: 0.99, so a fail-if-any-bad gate is the right rule.
 
-KEY FINDINGS (these are critical-analysis gold — report honestly):
-1. Module 1 is redundant with Module 2 on this dataset: an extreme value anomaly is also a
-   distributional shift, so the drift module catches it too. Genuine insight about amount-driven data.
-2. The weighted-averaging integration (incl. the confidence-adaptive scheme) FAILS on single-
-   dimension faults (F1 0.50) because a clean dimension dilutes a real fault below threshold. A
-   max/OR rule works (F1 0.99). This EMPIRICALLY CONFIRMS the literature-review caveat that RABEM's
-   confidence weighting suits same-task model fusion, not a multi-dimension gate.
-3. Implication for the write-up: the confidence-weighted layer is useful for interpretable per-
-   dimension severity + purpose-based prioritisation, but the final PASS/FAIL gate should use max/OR.
+The findings I care about, reported honestly:
+1. Module 1 is redundant with Module 2 on this dataset. An extreme-value anomaly is also a
+   distributional shift, so the drift module catches it too. That is a genuine insight about
+   amount-driven financial data.
+2. The weighted-averaging integration, including the confidence-adaptive scheme, fails on
+   single-dimension faults (F1 0.50), because one clean dimension pulls a real fault below the
+   threshold. A max/OR rule works (F1 0.99). This empirically confirms the caveat from my
+   literature review that RABEM's confidence weighting suits fusing same-task models, not gating
+   across independent quality dimensions.
+3. For the write-up: the confidence-weighted layer is useful for interpretable per-dimension
+   severity and purpose-based prioritisation, but the final pass/fail gate should use max/OR.
 
-NOTE on scales: ablation uses severity scores in [0,1] (anomaly = flagged-fraction/0.01 capped;
-drift = RF proba; missing = missing-rate/0.05 capped) and z_thresh=5 for anomaly flagging (natural
-max ~2.4e10 stays below 5 SD on log scale, so only injected extremes register). Anomaly corruption
-x1e9 so injected anomalies clearly exceed the natural tail.
+On scales: the ablation uses severity scores in [0,1] (anomaly is flagged-fraction over 0.01,
+capped; drift is the RF probability; missing is missing-rate over 0.05, capped), with a z threshold
+of 5 for anomaly flagging (the natural max, around 2.4e10, stays under 5 SD on the log scale, so
+only injected extremes register). Anomaly corruption uses times 1e9 so the injected anomalies
+clearly exceed the natural tail.
 
-## 4g. SECONDARY DATASET CROSS-VALIDATION (28 Jul 2026 — Credit Card Fraud)
+## 4g. Secondary dataset cross-validation (28 July 2026, Credit Card Fraud)
 
-Tests generalisation. Credit Card has REAL fraud labels (Class), so Module 1 is evaluated
-against genuine anomalies (no injection). Amount skew only 17 (vs IBM 858).
+This tests whether the framework generalises. Credit Card has real fraud labels (`Class`), so
+Module 1 is evaluated against genuine anomalies with no injection. Its amount skew is only about
+17, against 858 for IBM.
 
-Verified results (FULL framework run through the same parameterised src, notebook 08, 4 Aug 2026):
-- Module 1 vs real fraud: Isolation Forest ROC-AUC 0.953, LOF 0.956, Z-score(amount) 0.705,
-  Autoencoder 0.956 (PR-AUC 0.521, highest of the four on this imbalanced set).
-- Module 2 statistical (KS, first half vs second half): all tested columns drift (V3 KS 0.51,
-  V1 0.42) — natural temporal drift.
-- Module 2 RF drift classifier (trained on injected shift over reference period, evaluated at
-  held-out 20%/30% rates): ROC-AUC 1.000, F1 1.000. CAVEAT: near-perfect because injected
-  distribution shift is trivially separable; this is the known circularity limitation, present
-  it as "detects injected drift reliably", not "perfect drift detection".
-- Module 3 (MAR missing on Amount, predict from V1-V28, via module3_missing): ROC-AUC 0.722.
-- Integration (DQFramework, general profile): clean batch combined 0.107 PASS; corrupted batch
-  combined 0.556 FAIL. NOTE: the corrupted batch (x1e9 on Amount) is caught by the DRIFT module
-  (0.94), not the anomaly module (0.021) — the x1e9 shift moves the distribution. Framework
-  catches the fault; do not claim the anomaly module caught it.
-- Ablation (max scheme): full framework F1 1.000; remove Module 2 (drift) or Module 3 (missing)
-  -> F1 0.80 (each contributes); remove Module 1 (anomaly) -> F1 1.000 (anomaly fault overlaps
-  with what drift catches here, so anomaly looks redundant on CC — honest). Weighting schemes:
-  equal 0.500, severity 0.594, adaptive 0.571, max 1.000 — same dilution finding as IBM (averaging
-  unsuitable for a multi-dimension gate).
+Results from the full framework running through the same parameterised `src` (notebook 08, 4
+August 2026):
+- Module 1 against real fraud: Isolation Forest ROC-AUC 0.953, LOF 0.956, Z-score (amount) 0.705,
+  Autoencoder 0.956 (PR-AUC 0.521, the highest of the four on this imbalanced set).
+- Module 2 statistical (KS, first half against second half): every tested column drifts (V3 KS
+  0.51, V1 0.42), which is natural temporal drift.
+- Module 2 RF drift classifier (trained on injected shift over the reference period, evaluated at
+  held-out 20% and 30% rates): ROC-AUC 1.000, F1 1.000. Caveat: this is near-perfect because an
+  injected distribution shift is trivially separable, which is the known circularity limitation. I
+  present it as "detects injected drift reliably", not "perfect drift detection".
+- Module 3 (MAR missing on Amount, predicted from V1 to V28): ROC-AUC 0.722.
+- Integration (general profile): a clean batch gives a combined 0.107 and passes, a corrupted
+  batch gives 0.556 and fails. Note that the corrupted batch (times 1e9 on Amount) is caught by
+  the drift module (0.94), not the anomaly module (0.021), because the times-1e9 shift moves the
+  distribution. The framework catches the fault, but I do not claim the anomaly module caught it.
+- Ablation (max scheme): the full framework scores F1 1.000; removing Module 2 or Module 3 drops
+  it to 0.80 (each contributes); removing Module 1 leaves it at 1.000 (the anomaly fault overlaps
+  with what drift catches here, so anomaly looks redundant on Credit Card too, which is honest).
+  The weighting schemes are equal 0.500, severity 0.594, adaptive 0.571, max 1.000, the same
+  dilution finding as on IBM.
 
-Framework-generalisation claim now supported: the identical src modules run end-to-end on both
-datasets (Modules 1-3 + integration + ablation), driven only by a column config (IBM defaults vs
-Credit Card config). Backward compatibility verified: IBM notebooks call the changed functions
-with defaults only, and the defaults equal the previously hardcoded IBM values.
+The generalisation claim now holds: the same `src` modules run end-to-end on both datasets
+(Modules 1 to 3, integration, and ablation), driven only by a column config (IBM defaults against
+the Credit Card config). Backward compatibility is checked, since the IBM notebooks call the
+changed functions with defaults only, and those defaults equal the values that used to be
+hardcoded.
 
-KEY FINDING (strong for Ch 5/6): LOF FAILED on IBM (0.18) but WORKS on Credit Card (0.956).
-Reason: IBM anomalies are global amount-extremes (LOF's weak point); Credit Card fraud lives in
-the multi-dimensional PCA (V) space where LOF's local density is strong. This explains WHEN each
-detector helps and directly supports the multi-detector design (Xu et al. 2023; Han et al. 2022).
-Limitation confirmed: V1-V28 are anonymous PCA columns, so Module 2 structural check is not
-business-meaningful here; statistical check only (as in project limitation #2).
+The strongest finding for Chapters 5 and 6: LOF fails on IBM (0.18) but works on Credit Card
+(0.956). The reason is that IBM anomalies are global amount extremes, which is LOF's weak point,
+whereas Credit Card fraud lives in the multi-dimensional PCA space where LOF's local density is
+strong. This explains when each detector helps and supports the multi-detector design (Xu et al.
+2023; Han et al. 2022). Confirmed limitation: V1 to V28 are anonymous PCA columns, so the Module 2
+structural check has no business meaning here and only the statistical check applies.
 
-## 4h. AUTOENCODER — Module 1 fifth method (28 Jul 2026)
+## 4h. Autoencoder, the fifth Module 1 method (28 July 2026)
 
-module1_autoencoder.py: PyTorch autoencoder; train on clean reference, anomaly score =
-reconstruction error. Requires torch. Bottleneck sized from input (input_dim // 2) so it is
-strictly smaller than the number of features (a bottleneck = input_dim gives no compression and
-the model just copies input to output -> no anomaly signal; this was a real bug, now fixed).
+`module1_autoencoder.py` is a PyTorch autoencoder. It trains on the clean reference and scores
+anomalies by reconstruction error. The bottleneck is sized from the input (`input_dim // 2`) so it
+is strictly smaller than the number of features. A bottleneck equal to the input gives no
+compression and the model just copies its input to its output, which produces no anomaly signal.
+That was a real bug, now fixed.
 
-KEY FINDING (dimensionality matters — strong for Ch 5/6):
-- On IBM (Module 1, only 4 features): autoencoder ROC-AUC ~0.50 — near random. Autoencoders need
-  many correlated features; 4 (3 near-constant time + amount) is too few. Honest limitation.
-- On Credit Card (29 features V1-V28 + log amount, vs REAL fraud): reconstruction anomaly detection
-  ROC-AUC ~0.95 (validated via PCA proxy; autoencoder added to notebook 08). Excellent.
-So the autoencoder is not "bad" — it is dimensionality-dependent: weak on the low-dim IBM feature
-set, strong on the high-dim Credit Card space. This is a clean demonstration of WHEN autoencoders
-help and why it is the droppable "build last" method for the IBM primary analysis.
-Autoencoder in notebook 03 (IBM, ~0.5) and notebook 08 (Credit Card, ~0.95). Runs on cluster after
-`pip install torch`; not tested end-to-end in the dev sandbox (torch unavailable there) but the
-reconstruction method is validated by PCA proxy on both datasets.
+The finding, which is about dimensionality:
+- On IBM (Module 1 has only 4 features), the autoencoder reaches ROC-AUC around 0.50, near random.
+  Autoencoders need many correlated features, and four (three near-constant time features plus
+  amount) is too few. This is an honest limitation.
+- On Credit Card (29 features, V1 to V28 plus log amount, against real fraud), reconstruction-based
+  detection reaches ROC-AUC around 0.95, which is strong.
 
-## 4i. FRAMEWORK ORCHESTRATOR + SCORING FIX + FULL-SCALE RUN (4 Aug 2026)
+So the autoencoder is not bad, it is dimensionality-dependent: weak on the low-dimensional IBM
+feature set, strong on the high-dimensional Credit Card space. That is a clean demonstration of
+when autoencoders help, and it is why the autoencoder is the droppable "build last" method for the
+IBM analysis. It appears in notebook 03 (IBM, around 0.5) and notebook 08 (Credit Card, around
+0.95). It runs on the cluster after `pip install torch`. I did not run it end-to-end in the
+development sandbox because torch would not install there, but the reconstruction method is checked
+with a PCA proxy on both datasets.
 
-src/framework.py: single developer/tester entry point.
-- build_framework(reference, config) fits all three modules and returns a ready DQFramework
-  in the ABLATION-VALIDATED gate config (max combine + severity-scaled anomaly + observed
-  missing-rate gate). Same code, two datasets (IBM_CONFIG / CC_CONFIG).
-- run_pipeline(data_path, config) streams the ENTIRE incoming period in batches (whole-dataset
-  run), returns per-batch PASS/FAIL summary + throughput.
+## 4i. Framework orchestrator, scoring fix, and full-scale run (4 August 2026)
 
-Scoring fix (integration.py, backward compatible — old defaults reproduce notebook 06):
-- combine_scores gains combine_mode 'weighted' (old) | 'max' (gate). Ablation shows averaging
-  dilutes a single-dimension fault; max is the correct gate rule.
-- DQFramework: anomaly fraction rescaled to severity (min(1, frac/anomaly_sig)); missing gate =
-  OBSERVED null-rate severity (the Module 3 ML model is reported separately as an early-warning
-  'missing_risk', not the gate signal). This makes the shipped framework match what the ablation
-  validates (Issue A resolved). LOF excluded from the runtime gate (not scalable); runtime
-  anomaly signal is the log-amount z-score.
+`src/framework.py` is the single entry point a developer or tester would use.
+- `build_framework(reference, config)` fits all three modules and returns a ready `DQFramework` in
+  the configuration the ablation validated (max combine, severity-scaled anomaly, observed
+  missing-rate gate). The same code runs on both datasets through `IBM_CONFIG` or `CC_CONFIG`.
+- `run_pipeline(data_path, config)` streams the entire incoming period in batches (a whole-dataset
+  run) and returns a per-batch pass/fail summary plus throughput.
 
-DRIFT FIX (notebook 09) — real finding, NOT presented as a limitation:
-- Naive fixed-reference drift gate flagged 61/61 incoming batches (100%) as drift. Two causes:
-  (1) fixed day-1..3 reference conflates natural temporal drift with quality problems;
-  (2) KS test is over-powered at 50k-row batches (trivial differences read as drift, p~0).
-- Fix = rolling reference (compare each batch to recent history) + KS test on a fixed ~3k sample
-  (controls power) + drift calibrated to normal clean variation + failed batches excluded from
-  the rolling buffer.
-- Verified on controlled synthetic data (known faults in known batches): recall 3/3 fault types,
-  0 false alarms on clean batches even with gradual drift.
-- FULL-SCALE REAL RUN (HI-Small, all 3,000,485 incoming rows, ~219k rows/s): fixed reference
-  12/61 FAIL (20%); rolling reference 3/61 FAIL (5%). Decomposition (state honestly): KS
-  subsampling + calibration took 100% -> 20%; rolling reference took 20% -> 5%. Rolling did NOT
-  do all the work alone.
-- Caveats: this run mainly exercises the DRIFT dimension (real incoming has no injected
-  anomaly/missing faults, so those scores ~0; they are validated in ablation + synthetic tests).
-  The 3 rolling FAILs are "materially different from recent history"; genuineness would need
-  domain ground truth.
+The scoring fix in `integration.py` is backward compatible, so the old defaults reproduce notebook
+06:
+- `combine_scores` gains a `combine_mode` of `weighted` (the old behaviour) or `max` (the gate).
+  The ablation showed averaging dilutes a single-dimension fault, and max is the right rule.
+- `DQFramework` now rescales the anomaly fraction to a severity and uses the observed null-rate as
+  the missing gate signal, while the Module 3 model is reported separately as an early-warning
+  `missing_risk`. This makes the shipped framework match what the ablation validates. LOF is left
+  out of the runtime gate because it does not scale, and the runtime anomaly signal is the
+  log-amount z-score.
 
-## 5. BUILD ORDER (strict — do not skip)
-
-- [DONE] Stage 0: environment + data load check.
-- [DONE] Stage 1: injection functions (src/injection.py) — all three tested.
-- [DONE] Preprocessing (src/preprocessing.py) + EDA (notebook 02) — validated.
-- [NEXT] Stage 2: Module 1 — Isolation Forest, then LOF, then Z-score, then IQR,
-  then Autoencoder (PyTorch, LAST; drop if behind schedule).
-- Stage 3: Module 2 — structural check, then KS + Chi-squared, then RF classifier.
-  Train the RF on injected drift at 5% and 10%; evaluate at 20% and 30% with
-  DIFFERENT seeds. Test four drift types separately (drop, rename, dtype, distribution).
-- Stage 4: Module 3 — one XGBoost per target column; scale_pos_weight =
-  non-missing / missing; evaluate per column then average.
-- Stage 5: Integration layer — Layer 1 purpose profiles, then Layer 2 confidence
-  weighting; threshold 0.5; normalise all module scores to [0,1] first.
-- Stage 6: Ablation (A1-A4) + full evaluation + all plots.
-
-Minimum viable if time runs short: iForest + LOF + Z/IQR for M1; steps 1-2 of M2;
-XGBoost for M3; equal-weighted integration; all four ablation experiments.
+The drift fix (notebook 09) is a real finding, and I present it as one rather than as a limitation.
+- The naive fixed-reference gate flagged all 61 incoming batches (100%) as drift, for two reasons:
+  the fixed day-1-to-3 reference conflates natural temporal drift with quality problems, and the
+  KS test is over-powered at 50k rows, so trivial differences read as drift with p near 0.
+- The fix is a rolling reference (each batch is compared to recent history), the KS test run on a
+  fixed sample of about 3k rows to control its power, the drift calibrated against normal clean
+  variation, and failed batches excluded from the rolling buffer.
+- On controlled synthetic data with known faults in known batches, it caught all three fault types
+  and raised no false alarms on clean batches, even with gradual drift present.
+- On the full real run (HI-Small, all 3,000,485 incoming rows, about 219k rows per second) the
+  fixed reference flagged 12 of 61 (20%) and the rolling reference flagged 3 of 61 (5%). I state
+  the decomposition honestly: the KS subsampling and calibration took it from 100% to 20%, and the
+  rolling reference took it from 20% to 5%, so the rolling reference did not do all the work alone.
+- Caveats: this run mainly exercises the drift dimension, because the real incoming data has no
+  injected anomaly or missing faults, so those scores are near 0 and are validated instead in the
+  ablation and the synthetic tests. The three rolling failures are batches that differ materially
+  from recent history; confirming they are genuine quality events would need domain ground truth.
 
 ---
 
-## 6. INTEGRATION LAYER SPEC (for Stage 5)
+## 5. Build order
 
-Layer 1 baseline weights by mode (all sum to 1.0):
+- Stage 0, environment and data load check. Done.
+- Stage 1, injection functions in `src/injection.py`, all three tested. Done.
+- Preprocessing in `src/preprocessing.py` plus the EDA in notebook 02. Done and validated.
+- Stage 2, Module 1: Isolation Forest, then LOF, then Z-score, then IQR, then the autoencoder
+  (PyTorch, built last, droppable if time runs short).
+- Stage 3, Module 2: the structural check, then KS plus Chi-squared, then the RF classifier.
+  Train the RF on injected drift at 5% and 10%, evaluate at 20% and 30% with different seeds, and
+  test each drift type separately (drop, rename, dtype, distribution).
+- Stage 4, Module 3: one XGBoost per target column, `scale_pos_weight` set to non-missing over
+  missing, evaluated per column and then averaged.
+- Stage 5, integration: Layer 1 purpose profiles, then Layer 2 confidence weighting, threshold
+  0.5, with all module scores normalised to [0,1] first.
+- Stage 6, ablation (A1 to A4), full evaluation, and all plots.
+
+If time had run short, the minimum viable version was iForest, LOF, and Z/IQR for Module 1, steps
+1 and 2 of Module 2, XGBoost for Module 3, equal-weighted integration, and all four ablation
+experiments.
+
+---
+
+## 6. Integration layer spec
+
+Layer 1 baseline weights by mode (each sums to 1.0):
 - general (default): drift 0.5, anomaly 0.3, missing 0.2
 - fraud: anomaly 0.5, drift 0.3, missing 0.2
 - compliance: missing 0.5, drift 0.3, anomaly 0.2
 
-Layer 2 (confidence-based adaptive, applied per batch; grounded in Almarshad et al. 2025):
+Layer 2 is confidence-based and applied per batch, grounded in Almarshad et al. (2025):
+
     confidence_i   = abs(score_i - 0.5)
     raw_weight_i   = baseline_i * (0.5 + confidence_i)
     final_weight_i = raw_weight_i / sum(all raw_weights)
     combined_score = sum(final_weight_i * score_i)
-All module scores MUST be normalised to [0,1] before this. Threshold 0.5: pass if
-combined < 0.5, fail if >= 0.5.
+
+All module scores are normalised to [0,1] before this. With a threshold of 0.5, a batch passes if
+the combined score is below 0.5 and fails at or above it.
 
 ---
 
-## 7. EVALUATION / ABLATION (Stage 6)
+## 7. Evaluation and ablation
 
-- Per module: Precision, Recall, F1, ROC-AUC (reported individually) + confusion matrix.
-- Ablation: A1 remove M1; A2 remove M2; A3 remove M3; A4 equal vs severity vs adaptive
-  weights. Report F1 change per experiment as % change from the full framework.
-- Plots: confusion matrix per module; ROC curves (all M1 methods on one plot); RF and
-  XGBoost feature importances; ablation bar chart.
-
----
-
-## 8. CODING CONVENTIONS
-
-- seed = 42 everywhere.
-- Never modify the original DataFrame in place (functions .copy() first).
-- Fit transformers/models on the reference (clean) batch; apply to incoming.
-- Clean, commented Python; reusable functions in src/, runnable notebooks in notebooks/.
-- Do not commit the datasets to Git (they are large); see .gitignore.
+- Per module: Precision, Recall, F1, and ROC-AUC reported individually, plus a confusion matrix.
+- Ablation: A1 removes Module 1, A2 removes Module 2, A3 removes Module 3, A4 compares equal,
+  severity, and adaptive weighting. I report the F1 change per experiment as a percentage change
+  from the full framework.
+- Plots: a confusion matrix per module, ROC curves for all Module 1 methods on one plot, the RF
+  and XGBoost feature importances, and the ablation bar chart.
 
 ---
 
-## 9. REPO / HPC WORKFLOW
+## 8. Coding conventions
 
-- Files created on the Mac live in `DISSERTATION/CODE/`.
-- Sync to the Surrey HPC via Git: push from Mac, pull on HPC, run in VS Code.
-- Datasets are NOT in Git — copy them to the HPC once (scp/rsync) or point paths at
-  their HPC location. Set `DATA_PATH` in each notebook accordingly.
+- The seed is 42 everywhere.
+- Functions never modify the original DataFrame in place; they `.copy()` first.
+- Transformers and models are fit on the clean reference batch and applied to the incoming data.
+- Reusable functions live in `src/`, runnable notebooks in `notebooks/`, and the code is
+  commented.
+- The datasets are not committed to Git because they are large; see `.gitignore`.
 
 ---
 
-## 10. KNOWN LIMITATIONS TO STATE HONESTLY (methodology/limitations chapter)
+## 9. Repository and HPC workflow
 
-Module 2 circularity (RF trained + evaluated on injected drift); secondary-dataset PCA
-(no structural drift check); no streaming evaluation; manual integration weights;
-threshold 0.5 not empirically tuned; injection is MCAR only (simplest mechanism);
-datasets synthetic/anonymised. Also correct the "10-day span" claim (see 3.7).
+- Files are created on the Mac in `DISSERTATION/CODE/`.
+- They sync to the Surrey HPC through Git: push from the Mac, pull on the HPC, run in VS Code.
+- The datasets are not in Git. I copy them to the HPC once and point `DATA_PATH` in each notebook
+  at their location there.
+
+---
+
+## 10. Known limitations to state honestly (for the limitations chapter)
+
+Module 2 has a circularity limitation, since the RF is trained and evaluated on injected drift. On
+the secondary dataset the PCA columns mean there is no structural drift check. There is no
+streaming evaluation. The integration weights are set manually. The 0.5 threshold is not
+empirically tuned. The default injection mechanism is MCAR, the simplest one. Both datasets are
+synthetic or anonymised. I also correct the earlier "10-day span" claim, as noted in Section 3.

@@ -1,13 +1,22 @@
-# DQ Monitoring Framework — Code
-MSc Data Science dissertation, University of Surrey.
+# Data Quality Monitoring Framework
 
-## Structure
-- `src/`        reusable Python modules (injection.py, preprocessing.py)
-- `notebooks/`  runnable notebooks (open in VS Code)
-- `data/`       place datasets here (not committed to Git)
-- `results/`    metrics, figures, saved models
+Code for my MSc Data Science dissertation at the University of Surrey.
 
-## Build order
-0 env+data · 1 injection (done) · preprocessing (done) · 2 Module 1 · 3 Module 2 · 4 Module 3 · 5 Integration · 6 Ablation
+The project builds an automated quality gate for a financial data pipeline. An incoming batch of
+data is compared against a clean reference batch and checked along three dimensions at once:
+value-level anomalies, schema and distribution drift, and missing values. The three checks are
+combined into a single score, and the batch is either passed on to QA or sent back to the
+developer.
 
-See PROJECT_CONTEXT.md for all decisions and data facts.
+## Layout
+
+- `src/` holds the reusable Python modules: fault injection, preprocessing, the three detection
+  modules, the integration layer, the framework orchestrator, and the diagnostics.
+- `notebooks/` holds the runnable notebooks in build order. They open cleanly in VS Code.
+- `data/` is where the datasets go. They are large, so they are kept out of Git.
+- `results/` holds the saved metrics, figures, and run summaries.
+
+## Where to start
+
+Read `PROJECT_CONTEXT.md` first. It records the design decisions, what I found in the data, and
+the results, so the reasoning behind the code is all in one place.
