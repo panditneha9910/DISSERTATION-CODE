@@ -24,11 +24,11 @@ Design choices (see PROJECT_CONTEXT 4e/4f):
   framework is exercised on the whole dataset.
 - LOF is deliberately NOT part of the runtime gate: the gate's anomaly signal is a fast,
   scalable log-amount z-score. LOF is near-quadratic and is used only in the Module 1
-  offline comparison (notebook 03), not here.
+  offline comparison (notebook 03).
 
 The same code runs on both datasets; only the column config differs.
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit
 """
 
 import numpy as np
@@ -40,9 +40,7 @@ import module3_missing as m3
 import integration as ig
 
 
-# ======================================================================
-# Column configs — everything dataset-specific lives here, not in the logic
-# ======================================================================
+
 IBM_CONFIG = dict(
     name="IBM HI-Small",
     amount_col="Amount Paid",
@@ -151,7 +149,7 @@ def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
 
 
 # ======================================================================
-# Whole-dataset run: stream the ENTIRE incoming period in batches
+# Whole dataset run: stream the ENTIRE incoming period in batches
 # ======================================================================
 def run_pipeline(data_path, config, batch_size=50000, reference_days=3, max_days=10,
                  nrows=None, max_batches=None, verbose=True,
