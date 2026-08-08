@@ -15,7 +15,7 @@ Dataset column reference (IBM HI-Small_Trans.csv, verified 27 July 2026):
 Numeric columns suitable for anomaly/missing injection: 'Amount Paid',
 'Amount Received'. Label column: 'Is Laundering'.
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit
 """
 
 import numpy as np
@@ -23,30 +23,7 @@ import pandas as pd
 
 
 def inject_anomalies(df, column, rate=0.02, multiplier=50, seed=42):
-    """
-    Inject value-level anomalies by multiplying a chosen numeric column by a
-    large factor on a random subset of rows. Feeds Module 1 ground truth.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Clean reference data. Not modified in place.
-    column : str
-        Name of the numeric column to corrupt (e.g. 'Amount Paid').
-    rate : float, default 0.02
-        Fraction of rows to turn into anomalies.
-    multiplier : float, default 50
-        Factor applied to the chosen column on the selected rows.
-    seed : int, default 42
-        Seed for the random generator, for reproducibility.
-
-    Returns
-    -------
-    corrupted_df : pandas.DataFrame
-        Copy of df with anomalies injected into `column`.
-    ground_truth : pandas.Series
-        Boolean Series aligned to df.index. True where a row was corrupted.
-    """
+   
     df = df.copy()
     rng = np.random.default_rng(seed)
     n_anomalies = int(len(df) * rate)
@@ -60,28 +37,7 @@ def inject_anomalies(df, column, rate=0.02, multiplier=50, seed=42):
 
 
 def inject_schema_drift(df, drop_column=None, rename_map=None, dtype_change=None):
-    """
-    Inject structural schema drift by dropping, renaming, or retyping columns.
-    Call separately for each drift type being tested. Feeds Module 2 ground truth.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Clean reference data. Not modified in place.
-    drop_column : str or None
-        Column name to drop, or None.
-    rename_map : dict or None
-        Mapping {old_name: new_name}, or None.
-    dtype_change : tuple or None
-        (column_name, new_type) to cast a column, or None.
-
-    Returns
-    -------
-    drifted_df : pandas.DataFrame
-        Copy of df with the requested structural change applied.
-    change_log : dict
-        Record of what changed at batch level.
-    """
+   
     df = df.copy()
     change_log = {}
 
@@ -102,28 +58,7 @@ def inject_schema_drift(df, drop_column=None, rename_map=None, dtype_change=None
 
 
 def inject_missing_values(df, column, rate=0.10, seed=42):
-    """
-    Inject missing values by setting a random subset of rows in a chosen column
-    to NaN. Feeds Module 3 ground truth. Call once per target column.
-
-    Parameters
-    ----------
-    df : pandas.DataFrame
-        Clean reference data. Not modified in place.
-    column : str
-        Name of the column in which to insert missing values.
-    rate : float, default 0.10
-        Fraction of rows to set to NaN.
-    seed : int, default 42
-        Seed for the random generator, for reproducibility.
-
-    Returns
-    -------
-    corrupted_df : pandas.DataFrame
-        Copy of df with NaNs inserted into `column`.
-    ground_truth : pandas.Series
-        Boolean Series aligned to df.index. True where a value was removed.
-    """
+  
     df = df.copy()
     rng = np.random.default_rng(seed)
     n_rows = len(df)
