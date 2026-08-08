@@ -18,7 +18,7 @@ Design:
 - Ground truth for evaluation is the injected-anomaly mask from inject_anomalies
   (optionally combined with the real Is_Laundering label).
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit 
 """
 
 import numpy as np
@@ -30,9 +30,6 @@ from sklearn.metrics import (precision_score, recall_score, f1_score,
 SEED = 42
 
 
-# ----------------------------------------------------------------------
-# Helpers
-# ----------------------------------------------------------------------
 def _normalise(scores):
     """Min-max scale scores to [0,1]. Higher = more anomalous."""
     scores = np.asarray(scores, dtype=float)
@@ -67,7 +64,7 @@ def score_isolation_forest(model, X):
 
 
 # ----------------------------------------------------------------------
-# 2. Local Outlier Factor (novelty mode: fit on reference, score incoming)
+# 2. Local Outlier Factor
 # ----------------------------------------------------------------------
 def fit_lof(X_ref, n_neighbors=20):
     """Fit LOF in novelty mode on the clean reference features."""
@@ -87,7 +84,7 @@ def score_lof(model, X):
 
 
 # ----------------------------------------------------------------------
-# 3. Z-score baseline (univariate, on a single amount feature)
+# 3. Z-score baseline 
 # ----------------------------------------------------------------------
 def zscore_scores(values, ref_values=None, threshold=3.0):
     """
@@ -109,7 +106,7 @@ def zscore_scores(values, ref_values=None, threshold=3.0):
 
 
 # ----------------------------------------------------------------------
-# 4. IQR baseline (univariate, on a single amount feature)
+# 4. IQR baseline
 # ----------------------------------------------------------------------
 def iqr_scores(values, ref_values=None, k=1.5):
     """
@@ -131,14 +128,7 @@ def iqr_scores(values, ref_values=None, k=1.5):
 # Evaluation
 # ----------------------------------------------------------------------
 def evaluate(scores, ground_truth, threshold=0.5, flags=None):
-    """
-    Compute Precision, Recall, F1, ROC-AUC and the confusion matrix.
-
-    scores : array in [0,1], higher = more anomalous (used for ROC-AUC).
-    ground_truth : boolean array, True where the row is a real anomaly.
-    threshold : cutoff on `scores` for binary metrics (ignored if `flags` given).
-    flags : optional precomputed boolean predictions (for rule baselines).
-    """
+    
     y = np.asarray(ground_truth).astype(int)
     pred = np.asarray(flags).astype(int) if flags is not None else (np.asarray(scores) >= threshold).astype(int)
     out = {
@@ -157,11 +147,7 @@ def evaluate(scores, ground_truth, threshold=0.5, flags=None):
 
 
 def evaluate_topk(scores, ground_truth, k):
-    """
-    Evaluate at a top-k operating point: flag the highest-scoring fraction k as
-    anomalies (k should match the injection rate). Returns precision and recall.
-    This is a fairer binary operating point than a fixed 0.5 on normalised scores.
-    """
+   
     scores = np.asarray(scores)
     y = np.asarray(ground_truth).astype(bool)
     thr = np.quantile(scores, 1 - k)
