@@ -1,12 +1,12 @@
 """
 module3_missing.py
-Module 3 — missing-value prediction (early warning).
+Module 3 — missing-value prediction.
 
 Predicts WHETHER a value will be missing in a target column, using the other columns
 as features. This is different from imputation (DataWig), which predicts what the value
 should be. One XGBoost classifier is trained per target column.
 
-Design note on the missingness mechanism (important — ties to Rubin, 1976):
+Design note on the missing mechanism:
 - The project's default injection is missing-completely-at-random (MCAR). MCAR missingness
   is, by definition, independent of the other variables, so it CANNOT be predicted — a
   classifier scores ~0.5. This is a correct theoretical result, not a failure.
@@ -17,7 +17,7 @@ Design note on the missingness mechanism (important — ties to Rubin, 1976):
 
 Class imbalance is handled with scale_pos_weight = (non-missing count) / (missing count).
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit 
 """
 
 import numpy as np
@@ -38,19 +38,7 @@ TIME_COL = "Timestamp"
 # ======================================================================
 def inject_missing_values_mar(df, target_column, rate=0.10, driver="Amount Paid",
                               power=2.0, seed=42):
-    """
-    Inject MISSING-AT-RANDOM values: the probability that `target_column` is missing
-    depends on the `driver` column (larger amounts are more likely to be missing).
-    This creates a pattern a classifier can learn from the other columns.
-
-    `power` controls how strongly missingness depends on the driver: the selection
-    weight is proportional to (amount rank)**power. power=1 is a gentle dependence,
-    power=2 (default) a moderate, realistic one; higher makes missingness concentrate
-    in the largest transactions. Chosen calibration: power=2 gives ROC-AUC ~0.76 on
-    this data, clearly learnable while remaining realistic.
-
-    Returns (corrupted_df, ground_truth) where ground_truth is True/False per row.
-    """
+    
     df = df.copy()
     rng = np.random.default_rng(seed)
     n_missing = int(len(df) * rate)
@@ -71,21 +59,7 @@ def inject_missing_values_mar(df, target_column, rate=0.10, driver="Amount Paid"
 # ======================================================================
 def build_module3_features(df, target_col, log_cols=None, passthrough_cols=None,
                            categorical_cols=None, time_col=TIME_COL):
-    """
-    Build a numeric feature matrix from every column EXCEPT the target column.
-
-    Column roles (all optional, defaulting to the IBM schema so existing IBM notebooks
-    are unchanged):
-      log_cols         : heavy-tailed amount-like columns, log1p-transformed.
-      passthrough_cols : already-numeric columns used as-is (e.g. Credit Card's PCA
-                         components V1-V28, which must NOT be log-transformed as they
-                         are pre-scaled and can be negative).
-      categorical_cols : one-hot encoded (Credit Card has none, so pass []).
-      time_col         : if present, hour/dayofweek/day are derived from it; pass None
-                         to skip (Credit Card's Time is seconds-from-start, not a stamp).
-
-    Returns a DataFrame X aligned to df.index.
-    """
+    
     log_cols = NUMERIC_COLS if log_cols is None else log_cols
     passthrough_cols = [] if passthrough_cols is None else passthrough_cols
     categorical_cols = CATEGORICAL_COLS if categorical_cols is None else categorical_cols
@@ -155,19 +129,7 @@ def evaluate_missing(clf, X, y, threshold=0.5):
 
 def run_module3(train_df, test_df, target_cols, mechanism="mar", rate=0.10, seed=42,
                 driver="Amount Paid", feature_kwargs=None):
-    """
-    Full Module 3 run: for each target column, inject missingness (MAR or MCAR) into the
-    train and test batches, train an XGBoost classifier, and evaluate on the test batch.
-
-    `driver` is the column MAR missingness depends on (default IBM 'Amount Paid'; for
-    Credit Card use 'Amount'). `feature_kwargs` is passed to build_module3_features so the
-    same function serves both schemas — e.g. for Credit Card:
-        feature_kwargs=dict(log_cols=['Amount'], passthrough_cols=[f'V{i}' for i in range(1,29)],
-                            categorical_cols=[], time_col=None)
-
-    Returns a dict {target_col: metrics}. `mechanism` is 'mar' (learnable) or 'mcar'
-    (random, unpredictable — used as a contrast).
-    """
+    
     from injection import inject_missing_values  # MCAR
     feature_kwargs = feature_kwargs or {}
     results = {}
