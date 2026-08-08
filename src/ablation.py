@@ -16,7 +16,7 @@ responsible for catching different faults. Run each framework variant, threshold
 combined score at 0.5, and score the PASS/FAIL decision against the true label with F1.
 The drop in F1 when a module is removed is that module's contribution.
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit 
 """
 
 import numpy as np
@@ -46,7 +46,7 @@ def _default_cols():
 
 
 # ----------------------------------------------------------------------
-# Corruption: make a batch that a specific module should catch
+# corruption- making a batch that a specific module can catch correction
 # ----------------------------------------------------------------------
 def corrupt_batch(batch, kind, seed=42, cols=None):
     """
@@ -74,7 +74,7 @@ def corrupt_batch(batch, kind, seed=42, cols=None):
 
 
 # ----------------------------------------------------------------------
-# Batch -> three module scores
+# Batch -three module scores
 # ----------------------------------------------------------------------
 def compute_scores(batch, reference, fitted, cols=None):
     """
@@ -125,7 +125,7 @@ def build_labelled_scores(reference, ref_pool, fitted, n_each=15, seed=42,
 
 
 # ----------------------------------------------------------------------
-# Weighting schemes
+# weighting schemes (scores)
 # ----------------------------------------------------------------------
 def _combine_fixed(scores, baselines):
     """Weighted average with fixed (normalised) baselines — no confidence weighting."""
@@ -156,7 +156,7 @@ def combined_score(scores, scheme, included):
 
 
 # ----------------------------------------------------------------------
-# Run the experiments
+# Running the experiments
 # ----------------------------------------------------------------------
 def evaluate_variant(labelled, scheme, included, threshold=0.5):
     """F1 and accuracy of the PASS/FAIL decision for one framework variant."""
@@ -168,13 +168,7 @@ def evaluate_variant(labelled, scheme, included, threshold=0.5):
 
 
 def run_ablation(labelled, decision_scheme="max"):
-    """
-    Run A1-A4 and return a results table.
-
-    A1-A3 use the `decision_scheme` (default 'max', the proper gate rule) and remove one
-    module at a time, so the drop in F1 shows that module's contribution.
-    A4 compares all weighting schemes on the full module set.
-    """
+   
     all_mods = ["anomaly", "drift", "missing"]
     rows = []
     # Full framework
