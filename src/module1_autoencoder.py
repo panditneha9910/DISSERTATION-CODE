@@ -1,13 +1,13 @@
 """
 module1_autoencoder.py
-Module 1 — fifth anomaly method: an autoencoder (PyTorch), built last per the plan.
+Module 1 — fifth anomaly method: an autoencoder (PyTorch).
 
-Idea: train an autoencoder to reconstruct CLEAN reference data. Normal rows reconstruct
+Train an autoencoder to reconstruct CLEAN reference data. Normal rows reconstruct
 well (low error); anomalous rows reconstruct poorly (high error). The reconstruction
 error is the anomaly score. This complements the other detectors: it is a non-linear,
 reconstruction-based method (Sakurada & Yairi, 2014; the deep-AD family in Pang et al., 2021).
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit 
 """
 
 import numpy as np
@@ -48,14 +48,7 @@ if _HAS_TORCH:
             return self.decoder(self.encoder(x))
 
     def train_autoencoder(X_ref, epochs=20, batch_size=512, lr=1e-3, hidden=None, bottleneck=None):
-        """
-        Train the autoencoder on the clean reference feature matrix.
-
-        The bottleneck MUST be smaller than the number of features, otherwise the network
-        can copy its input to its output (no compression) and reconstructs anomalies just
-        as well as normal rows, giving no anomaly signal. By default the architecture is
-        sized from the input: hidden = 2*input_dim, bottleneck = input_dim // 2 (at least 1).
-        """
+   
         torch.manual_seed(SEED)
         np.random.seed(SEED)
         X = torch.tensor(np.asarray(X_ref), dtype=torch.float32)
