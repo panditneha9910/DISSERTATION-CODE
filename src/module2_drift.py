@@ -17,7 +17,7 @@ Known limitation (state in methodology): the RF classifier is trained and evalua
 synthetically injected drift, because no public financial dataset carries naturally
 labelled drift. Mitigated by different injection rates and seeds for train vs evaluation.
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit
 """
 
 import numpy as np
@@ -38,12 +38,7 @@ CATEGORICAL_COLS = ["Receiving Currency", "Payment Currency", "Payment Format"]
 # STEP 1 — Structural check
 # ======================================================================
 def structural_check(reference_df, incoming_df):
-    """
-    Compare column names and dtypes between the reference and incoming batches.
 
-    Returns a change_log dict recording dropped columns, added columns, and dtype
-    changes. An empty dict means the structure is unchanged.
-    """
     change_log = {}
     ref_cols, inc_cols = set(reference_df.columns), set(incoming_df.columns)
 
@@ -130,10 +125,7 @@ def statistical_check(reference_df, incoming_df,
 
 def drift_feature_vector(reference_df, incoming_df,
                          numeric_cols=NUMERIC_COLS, categorical_cols=CATEGORICAL_COLS):
-    """
-    Turn the Step 2 statistics into a fixed-length numeric feature vector for the
-    Random Forest classifier. Order is fixed so the vector is comparable across batches.
-    """
+    
     stats_map = statistical_check(reference_df, incoming_df, numeric_cols, categorical_cols)
     feats = []
     for col in numeric_cols:
@@ -204,14 +196,14 @@ def build_drift_dataset(reference_df, pool_df, rates, batch_size=20000,
 
 
 def train_drift_classifier(X, y):
-    """Train a Random Forest on the batch-level drift feature vectors."""
+    
     clf = RandomForestClassifier(n_estimators=200, random_state=SEED, n_jobs=-1)
     clf.fit(X, y)
     return clf
 
 
 def evaluate_drift_classifier(clf, X, y):
-    """Precision, Recall, F1, ROC-AUC and confusion matrix for the drift classifier."""
+   
     pred = clf.predict(X)
     proba = clf.predict_proba(X)[:, 1]
     return {
