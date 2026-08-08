@@ -35,23 +35,7 @@ PROFILES = {
 # ======================================================================
 def combine_scores(scores, mode="general", threshold=0.5, custom_weights=None,
                    combine_mode="weighted"):
-    """
-    Combine per-module batch scores into one data-quality score and decision.
-
-    scores : dict with keys 'anomaly', 'drift', 'missing', each a float in [0,1].
-    mode   : 'general' | 'fraud' | 'compliance' | 'custom'.
-    custom_weights : required if mode == 'custom'; dict of baselines summing to 1.
-    combine_mode :
-        'weighted' (default) — Layer 1 profile x Layer 2 confidence weighted average.
-                    This averages the dimensions, which DILUTES a single-dimension fault
-                    (a batch bad on only one axis is pulled towards the middle).
-        'max'      — gate semantics: the combined score is the strongest single dimension,
-                    so the batch FAILs if ANY dimension is bad. This is the configuration
-                    the ablation study validates for a multi-dimension quality gate.
-    The confidence weights are always returned (informative) even under 'max'.
-
-    Returns a dict: combined_score, decision ('PASS'/'FAIL'), final weights, baselines.
-    """
+ 
     baselines = custom_weights if mode == "custom" else PROFILES[mode]
 
     raw = {}
@@ -134,20 +118,7 @@ class DQFramework:
         #                                           [0,1]. Stops mild/normal drift from firing.
 
     def assess(self, batch):
-        """
-        Return a data-quality report for one incoming batch.
-
-        Gate signals (all in [0,1], comparable):
-          anomaly : fraction of rows beyond z_thresh SDs on log-amount. If anomaly_sig is
-                    set, rescaled to a severity (min(1, fraction/anomaly_sig)) so a single-
-                    dimension fault is not lost on a tiny fraction scale.
-          drift   : Random Forest drift probability.
-          missing : if missing_observed_col is set, the OBSERVED null-rate severity of that
-                    column (direct data-quality signal); otherwise the ML model's predicted
-                    null-risk (legacy behaviour).
-        The Module 3 ML model is always reported separately as 'missing_risk_warning'
-        (forward-looking early warning), independent of what drives the gate.
-        """
+    
         f = self.fitted
         frac = batch_anomaly_score(batch[self.amount_col],
                                    f["ref_log_mean"], f["ref_log_std"], z_thresh=self.z_thresh)
