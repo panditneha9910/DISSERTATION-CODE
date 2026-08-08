@@ -2,9 +2,8 @@
 diagnostics.py
 Explainability layer for the DQ framework.
 
-When the framework blocks a batch, this turns the raw module signals into concrete,
-human-readable findings: which check fired, which column is responsible, how severe it is,
-and a plain-language reason. It is what lets a developer / QA / business reader see WHY a
+When the framework blocks a batch, this turns the raw module signals into concrete findings-which check fired, which column is responsible, how severe it is,
+and a reason. It is what lets a developer / QA / business reader see WHY a
 batch was returned rather than just a PASS/FAIL flag.
 
 diagnose(batch, reference, ...) -> a report dict:
@@ -14,7 +13,7 @@ diagnose(batch, reference, ...) -> a report dict:
     'checks': {'anomaly': sev, 'drift': sev, 'missing': sev},               # 0..1 per dimension
   }
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit
 """
 
 import numpy as np
@@ -22,7 +21,7 @@ from scipy import stats
 
 
 def _anomaly_findings(batch, reference, numeric_cols, z_thresh=5.0, frac_sig=0.005):
-    """Fraction of rows whose value is > z_thresh SDs from the reference (log scale)."""
+  
     out = []
     for col in numeric_cols:
         if col not in batch.columns or col not in reference.columns:
@@ -68,7 +67,7 @@ def _drift_findings(batch, reference, numeric_cols, ks_sig=0.1):
 
 
 def _missing_findings(batch, columns, rate_sig=0.02):
-    """Per-column observed null rate."""
+    
     out = []
     for col in columns:
         if col not in batch.columns:
@@ -86,7 +85,7 @@ def _missing_findings(batch, columns, rate_sig=0.02):
 def diagnose(batch, reference, numeric_cols, missing_cols, threshold=0.5,
              z_thresh=5.0, frac_sig=0.005, ks_sig=0.1, rate_sig=0.02):
     """
-    Produce a human-readable fault report for one batch (see module docstring).
+    Produce a fault report for one batch.
     numeric_cols : columns checked for anomalies + drift.
     missing_cols : columns checked for missing values.
     """
