@@ -44,8 +44,9 @@ The entry point is `DQFramework(batch_data, reference_data, mode="general", thre
 
 1. There are no natural missing values in the IBM data, so Module 3 works entirely on injected
    missingness. This matches the design.
-2. `Amount Paid` is extremely heavy-tailed (skew around 219, median about 2,130, max about
-   1.4e11), so a log transform is essential.
+2. `Amount Paid` is extremely heavy-tailed (skew 858.7, verified from notebook 02 output; the
+   median and maximum quoted here previously were not verified and should be reconfirmed from the
+   data before being used anywhere), so a log transform is essential.
 3. `Amount Paid` equals `Amount Received` for about 99.4% of rows, so I use one amount column.
 4. `Account` and `Account.1` are close to unique (around 298k distinct in 500k rows), so I drop
    them as features.
