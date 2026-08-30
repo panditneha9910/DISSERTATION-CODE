@@ -1,0 +1,7 @@
+target,model,precision,recall,f1,roc_auc
+Receiving Currency,No-skill (majority class),0.0,0.0,0.0,0.5
+Receiving Currency,Logistic regression,0.203,0.702,0.315,0.769
+Receiving Currency,XGBoost (Module 3),0.183,0.795,0.298,0.764
+Payment Format,No-skill (majority class),0.0,0.0,0.0,0.5
+Payment Format,Logistic regression,0.204,0.702,0.316,0.769
+Payment Format,XGBoost (Module 3),0.184,0.79,0.299,0.765
