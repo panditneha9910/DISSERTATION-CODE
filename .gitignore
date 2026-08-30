@@ -8,3 +8,4 @@ __pycache__/
 results/*.pt
 results/*.pkl
 .DS_Store
+notebooks/anaconda_projects/
