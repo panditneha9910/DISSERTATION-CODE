@@ -1,19 +1,31 @@
+
 # Dependencies for the ML-based data quality monitoring framework.
-# Versions are those used for the experiments reported in the dissertation,
-# taken from the environment on the University of Surrey HPC cluster.
 
-numpy==1.26.4
-pandas==3.0.0
-scipy==1.11.4
+# Versions are those in the virtual environment on the University of Surrey
+
+# HPC cluster, where every experiment reported in the dissertation was run.
+ 
+numpy==2.4.4
+
+pandas==3.0.2
+
+scipy==1.17.1
+
 scikit-learn==1.8.0
-matplotlib==3.6.3
+ 
+# Module 3, missing-value prediction
 
-# Module 3 (missing-value prediction)
-xgboost
+xgboost==3.3.0
+ 
+# Module 1, autoencoder detector
 
-# Module 1 (autoencoder detector)
-torch
+torch==2.11.0
+ 
+# Figures and notebooks
 
-# Notebooks
+matplotlib==3.10.8
+
 seaborn==0.13.2
+
 joblib==1.5.3
+
