@@ -10,7 +10,7 @@ modules by hand in a notebook, a caller does:
 
 or, to build the framework and assess batches manually:
 
-    reference, incoming = ...            # your own split
+    reference, incoming = ...            
     dq = fw.build_framework(reference, fw.IBM_CONFIG)
     report = dq.assess(incoming_batch)   # -> combined score + PASS/FAIL
 
@@ -18,17 +18,17 @@ Design choices (see PROJECT_CONTEXT 4e/4f):
 - The framework is built in the ABLATION-VALIDATED configuration by default:
   max-gate combination + severity-scaled anomaly signal + observed missing-rate as the
   gate signal. The Module 3 ML model is still fitted and reported as a forward-looking
-  'missing_risk_warning', but the gate decision uses the directly-observed null rate so
+  'missing_risk_warning', but the gate decision uses the directly observed null rate so
   all three dimensions are comparable severities.
 - run_pipeline streams the ENTIRE incoming period in batches (not a sample), so the
   framework is exercised on the whole dataset.
-- LOF is deliberately NOT part of the runtime gate: the gate's anomaly signal is a fast,
+- LOF is deliberately NOT part of the runtime gate- the gate's anomaly signal is a fast,
   scalable log-amount z-score. LOF is near-quadratic and is used only in the Module 1
   offline comparison (notebook 03).
 
 The same code runs on both datasets; only the column config differs.
 
-Author: Neha Pandit
+Author: Neha Pandit 
 """
 
 import numpy as np
