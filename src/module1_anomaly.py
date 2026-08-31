@@ -7,7 +7,7 @@ Five detectors, built in the order set by the project plan:
   2. Local Outlier Factor (local, density-based; novelty mode)
   3. Z-score baseline  (univariate, 3 standard deviations)
   4. IQR baseline      (univariate, 1.5 x IQR)
-  5. Autoencoder       (PyTorch, built last — see module1_autoencoder.py; optional)
+  5. Autoencoder       (PyTorch)
 
 Design:
 - The ML detectors (iForest, LOF) are FIT on the clean reference feature matrix and
