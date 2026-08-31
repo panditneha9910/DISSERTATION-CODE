@@ -15,7 +15,7 @@ Formula (verified against the worked example in the project file):
     combined_score = sum(final_weight_i * score_i)
 All module scores must be in [0,1]. Pass if combined < threshold (default 0.5), else fail.
 
-Author: Neha Pandit | MSc Data Science | University of Surrey
+Author: Neha Pandit 
 """
 
 import numpy as np
@@ -106,16 +106,14 @@ class DQFramework:
         self.mode = mode
         self.threshold = threshold
         self.amount_col = amount_col     # 'Amount Paid' (IBM) or 'Amount' (Credit Card)
-        # --- scoring controls (defaults reproduce the original weighted-average behaviour) ---
+        
         self.combine_mode = combine_mode          # 'weighted' (old default) or 'max' (gate)
         self.z_thresh = z_thresh                  # z cut-off for the anomaly fraction
         self.anomaly_sig = anomaly_sig            # if set, anomaly fraction -> severity min(1, frac/sig)
-        self.missing_observed_col = missing_observed_col  # column whose OBSERVED null-rate is the gate signal
+        self.missing_observed_col = missing_observed_col 
         self.missing_sig = missing_sig            # null-rate that maps to missing-severity 1
-        self.drift_baseline = drift_baseline      # if set, drift proba is rescaled RELATIVE to
-        #                                           normal clean variation: severity =
-        #                                           (proba - baseline)/(1 - baseline), clipped to
-        #                                           [0,1]. Stops mild/normal drift from firing.
+        self.drift_baseline = drift_baseline     
+
 
     def assess(self, batch):
     
