@@ -364,6 +364,8 @@ the combined score is below 0.5 and fails at or above it.
 
 Module 2 has a circularity limitation, since the RF is trained and evaluated on injected drift. On
 the secondary dataset the PCA columns mean there is no structural drift check. There is no
-streaming evaluation. The integration weights are set manually. The 0.5 threshold is not
-empirically tuned. The default injection mechanism is MCAR, the simplest one. Both datasets are
-synthetic or anonymised. I also correct the earlier "10-day span" claim, as noted in Section 3.
+streaming evaluation. The integration weights are set manually. The 0.5 threshold was chosen by
+reasoning rather than tuned on data, though notebooks 07 and 09 now sweep it to show how sensitive
+the results are. Module 3 is evaluated on MAR with MCAR reported as a contrast, so those results
+depend on the injection mechanism I chose, as set out in Section 4d. Both datasets are synthetic
+or anonymised. I also correct the earlier "10-day span" claim, as noted in Section 3.

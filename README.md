@@ -19,4 +19,6 @@ developer.
 ## Where to start
 
 Read `PROJECT_CONTEXT.md` first. It records the design decisions, what I found in the data, and
-the results, so the reasoning behind the code is all in one place.
+the results, so the reasoning behind the code is all in one place. It is a dated working log kept
+during the project, so where it differs from the submitted dissertation the dissertation is the
+authoritative version.
