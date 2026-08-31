@@ -1,6 +1,6 @@
 # Project Context — Data Quality Monitoring Framework
 
-Neha Pandit, MSc Data Science, University of Surrey. Submission: 1 September 2026.
+Neha Pandit, MSc Data Science.
 
 This is my working record for the implementation. It keeps the design decisions, the facts I
 found in the data, and the results in one place so the reasoning behind the code is not scattered
