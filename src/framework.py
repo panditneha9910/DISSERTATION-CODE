@@ -90,10 +90,7 @@ def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
     """
     cfg = config
 
-    # Reference sample for the drift KS test. IMPORTANT: the KS test's power grows with
-    # sample size, so on 50k-row batches even a trivial distribution difference reads as
-    # drift (p ~ 0). We therefore fix a MODERATE sample size `ks_sample` for the drift
-    # comparison in BOTH training and runtime, so only material effect sizes register.
+
     drift_ref = reference_df.sample(min(ks_sample, len(reference_df)),
                                     random_state=seed).reset_index(drop=True)
 
@@ -104,30 +101,28 @@ def build_framework(reference_df, config, combine_mode="max", threshold=0.5,
         return m2.drift_feature_vector(_subsample(r), _subsample(b),
                                        cfg["m2_numeric"], cfg["m2_categorical"])
 
-    # reference used to fit the missing-risk model (capped for speed on huge references)
+    
     fit_ref = (reference_df if fit_sample is None or len(reference_df) <= fit_sample
                else reference_df.sample(fit_sample, random_state=seed).reset_index(drop=True))
 
-    # --- Module 2: drift classifier (trained on injected shift, KS at the fixed sample) ---
+    # Module 2: drift classifier (trained on injected shift, KS at the fixed sample)
     Xd, yd = m2.build_drift_dataset(
         drift_ref, reference_df, rates=list(drift_rates),
         batch_size=ks_sample, n_per_rate=20,
         numeric_cols=cfg["m2_numeric"], categorical_cols=cfg["m2_categorical"],
         drift_col=cfg["drift_col"], seed=seed)
     drift_clf = m2.train_drift_classifier(Xd, yd)
-    # calibrate the "normal variation" drift level: proba the classifier gives to CLEAN
-    # same-period batches. The 95th percentile is the upper edge of normal drift; anything
-    # materially above it is real drift. This de-sensitises the gate to mild variation.
+
     clean_proba = drift_clf.predict_proba(Xd[yd == 0])[:, 1]
     drift_baseline = float(np.quantile(clean_proba, 0.95)) if len(clean_proba) else None
 
-    # --- Module 3: missing-risk model (early-warning; not the gate signal) ---
+    # Module 3: missing-risk model (early-warning; not the gate signal)
     mc, mg = m3.inject_missing_values_mar(fit_ref, cfg["m3_target"], rate=0.10,
                                           driver=cfg["m3_driver"], seed=seed)
     Xm = m3.build_module3_features(mc, cfg["m3_target"], **cfg["m3_feature_kwargs"])
     miss_clf = m3.train_missing_classifier(Xm, mg.values)
 
-    # --- Module 1: reference log-amount statistics for the z-score gate signal ---
+    # Module 1: reference log-amount statistics for the z-score gate signal
     logamt = np.log1p(reference_df[cfg["amount_col"]].clip(lower=0))
 
     fitted = {
@@ -190,8 +185,7 @@ def run_pipeline(data_path, config, batch_size=50000, reference_days=3, max_days
 
     pipeline = build_framework(reference, config, **build_kwargs)
     fixed_reference = pipeline.reference     # the built reference sample (day 1..k)
-    # rolling buffer seeded with the END of the reference period, so batch 0 is compared to
-    # the most recent history rather than a cold start.
+    
     buffer = fixed_reference.tail(rolling_window).reset_index(drop=True)
 
     rows = []
